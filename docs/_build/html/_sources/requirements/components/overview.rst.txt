@@ -5,13 +5,15 @@ This section contains requirements for synarius-core subcomponents only.
 
 Core component codes:
 
-- ``MODEL`` for model
-- ``SIM`` for simulation
-- ``IO`` for input/output
+- ``CTL`` for controller
+- ``DATA`` for data model
+- ``CGEN`` for compiler/code generation
+- ``RUN`` for run engine
 
 Component requirement IDs must use:
 
-- ``CORE-COMP-MODEL-NNN``
-- ``CORE-COMP-SIM-NNN``
-- ``CORE-COMP-IO-NNN``
+- ``CORE-COMP-CTL-NNN``
+- ``CORE-COMP-DATA-NNN``
+- ``CORE-COMP-CGEN-NNN``
+- ``CORE-COMP-RUN-NNN``
 

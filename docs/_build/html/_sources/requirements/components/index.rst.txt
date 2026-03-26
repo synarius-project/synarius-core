@@ -5,7 +5,9 @@ Component Requirements
    :maxdepth: 1
 
    overview
-   model
-   simulation
-   io
+   controller
+   controller_command_protocol
+   data_model
+   compiler
+   run_engine
 
