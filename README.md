@@ -56,6 +56,11 @@ SN Core should provide a clean, stable backend that SN Studio (and later other f
 python -m synarius_core
 ```
 
+## Documentation
+
+- Live docs: https://synarius-project.github.io/synarius-core/
+- Docs source: https://github.com/synarius-project/synarius-core/tree/main/docs
+
 ## Branching Strategy
 
 This repository uses a simple branching model that fits a solo-developer phase and can be tightened later without changing the overall flow.
