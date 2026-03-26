@@ -6,7 +6,6 @@ Component Requirements
 
    overview
    controller
-   controller_command_protocol
    data_model
    compiler
    run_engine

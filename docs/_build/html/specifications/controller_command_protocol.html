@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="../">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Controller Command Protocol &#8212; synarius-core  documentation</title>
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=5ecbeea2" />
+    <link rel="stylesheet" type="text/css" href="../_static/basic.css?v=b08954a9" />
+    <link rel="stylesheet" type="text/css" href="../_static/alabaster.css?v=27fed22d" />
+    <link rel="stylesheet" type="text/css" href="../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../_static/sphinx-data-viewer/jsonview.bundle.css?v=f6ef2277" />
+    <link rel="stylesheet" type="text/css" href="../_static/sphinx-needs/libs/html/datatables.min.css?v=4b4fd840" />
+    <link rel="stylesheet" type="text/css" href="../_static/sphinx-needs/common_css/needstable.css?v=5e1b6797" />
+    <link rel="stylesheet" type="text/css" href="../_static/sphinx-needs/common_css/need_core.css?v=f5b60a78" />
+    <link rel="stylesheet" type="text/css" href="../_static/sphinx-needs/common_css/need_links.css?v=2150a916" />
+    <link rel="stylesheet" type="text/css" href="../_static/sphinx-needs/common_css/need_style.css?v=92936fa5" />
+    <link rel="stylesheet" type="text/css" href="../_static/sphinx-needs/common_css/need_toggle.css?v=5c6620df" />
+    <link rel="stylesheet" type="text/css" href="../_static/sphinx-needs/modern.css?v=803738c0" />
+    <script src="../_static/jquery.js?v=5d32c60e"></script>
+    <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+    <script src="../_static/documentation_options.js?v=5929fcd5"></script>
+    <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/sphinx-data-viewer/jsonview.bundle.js?v=18cd53c5"></script>
+    <script src="../_static/sphinx-data-viewer/jsonview_loader.js?v=f7ff7e7d"></script>
+    <script src="../_static/sphinx-needs/libs/html/datatables.min.js?v=8a4aee21"></script>
+    <script src="../_static/sphinx-needs/libs/html/datatables_loader.js?v=a2cae175"></script>
+    <script src="../_static/sphinx-needs/libs/html/sphinx_needs_collapse.js?v=dca66431"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="prev" title="Specifications" href="index.html" />
+   
+  <link rel="stylesheet" href="../_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <section id="controller-command-protocol">
+<h1>Controller Command Protocol<a class="headerlink" href="#controller-command-protocol" title="Link to this heading">¶</a></h1>
+<section id="scope">
+<h2>Scope<a class="headerlink" href="#scope" title="Link to this heading">¶</a></h2>
+<p>This specification defines the text-based command interface used to communicate with the Synarius Core controller.
+Commands are line-oriented and can run interactively (console) or in batch mode (script execution).</p>
+</section>
+<section id="general-concepts">
+<h2>General Concepts<a class="headerlink" href="#general-concepts" title="Link to this heading">¶</a></h2>
+<ul class="simple">
+<li><p>One command per line.</p></li>
+<li><p>Lines starting with <code class="docutils literal notranslate"><span class="pre">#</span></code> are comments and must be ignored.</p></li>
+<li><p>Tokens are whitespace-separated.</p></li>
+<li><p>Double-quoted strings may contain spaces.</p></li>
+<li><p>Typed values include numbers, booleans, and (optionally) collection literals.</p></li>
+<li><p>The controller maintains a current selection set for batch operations.</p></li>
+<li><p>Recommended root aliases: <code class="docutils literal notranslate"><span class="pre">&#64;latent</span></code>, <code class="docutils literal notranslate"><span class="pre">&#64;signals</span></code>, <code class="docutils literal notranslate"><span class="pre">&#64;objects</span></code>, <code class="docutils literal notranslate"><span class="pre">&#64;main</span></code>, <code class="docutils literal notranslate"><span class="pre">&#64;controller</span></code>.</p></li>
+</ul>
+</section>
+<section id="attribute-meta-properties">
+<h2>Attribute Meta-Properties<a class="headerlink" href="#attribute-meta-properties" title="Link to this heading">¶</a></h2>
+<p>Each attribute may carry the following properties:</p>
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>Property</p></th>
+<th class="head"><p>Meaning</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">virtual</span></code></p></td>
+<td><p>Value is computed via getter/setter callbacks and is not stored directly.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">exposed</span></code></p></td>
+<td><p>Attribute is user-visible in GUI/property views.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">writable</span></code></p></td>
+<td><p>Attribute is modifiable by user operations.</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="top-level-command-set">
+<h2>Top-Level Command Set<a class="headerlink" href="#top-level-command-set" title="Link to this heading">¶</a></h2>
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>Command</p></th>
+<th class="head"><p>Purpose</p></th>
+<th class="head"><p>Canonical syntax</p></th>
+<th class="head"><p>Result</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><em>(empty line)</em></p></td>
+<td><p>No operation</p></td>
+<td><p><em>(blank line)</em></p></td>
+<td><p>No effect</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">ls</span></code></p></td>
+<td><p>List children/entries in current context</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">ls</span></code></p></td>
+<td><p>Text output</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">lsattr</span></code></p></td>
+<td><p>List attributes in current context</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">lsattr</span></code></p></td>
+<td><p>Text output</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">cd</span></code></p></td>
+<td><p>Change active context/folder</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">cd</span> <span class="pre">&lt;path&gt;</span></code></p></td>
+<td><p>Active context updated</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">new</span></code></p></td>
+<td><p>Create a new object/element</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">new</span> <span class="pre">&lt;type&gt;</span> <span class="pre">&lt;args...&gt;</span> <span class="pre">[kw=value</span> <span class="pre">...]</span></code></p></td>
+<td><p>New object reference</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">select</span></code></p></td>
+<td><p>Set current selection</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">select</span> <span class="pre">&lt;ref...&gt;</span></code></p></td>
+<td><p>Selection updated</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">set</span></code></p></td>
+<td><p>Set attribute(s) on a target</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">set</span> <span class="pre">&lt;target&gt;</span> <span class="pre">&lt;value&gt;</span></code></p></td>
+<td><p>Attribute updated</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">del</span></code></p></td>
+<td><p>Delete object(s)</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">del</span> <span class="pre">&lt;ref...&gt;</span></code></p></td>
+<td><p>Object(s) removed</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="object-referencing">
+<h2>Object Referencing<a class="headerlink" href="#object-referencing" title="Link to this heading">¶</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">&lt;ref&gt;</span></code> resolution precedence (recommended):</p>
+<ol class="arabic simple">
+<li><p>direct internal key</p></li>
+<li><p>name</p></li>
+<li><p>display name</p></li>
+<li><p>numeric ID (optional)</p></li>
+</ol>
+<p>If resolution is ambiguous, the controller must raise an explicit error.</p>
+</section>
+<section id="paths-and-targets">
+<h2>Paths and Targets<a class="headerlink" href="#paths-and-targets" title="Link to this heading">¶</a></h2>
+<ul class="simple">
+<li><p>Relative path: <code class="docutils literal notranslate"><span class="pre">./Child/SubChild</span></code></p></li>
+<li><p>Alias-root path: <code class="docutils literal notranslate"><span class="pre">&#64;objects/variables/Speed</span></code></p></li>
+<li><p>Attribute target: <code class="docutils literal notranslate"><span class="pre">&lt;path&gt;.&lt;attr&gt;</span></code></p></li>
+</ul>
+<p>Examples:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">cd</span> <span class="o">./</span><span class="n">subsystemA</span>
+<span class="nb">set</span> <span class="nd">@objects</span><span class="o">/</span><span class="n">variables</span><span class="o">/</span><span class="n">Speed</span><span class="o">.</span><span class="n">signalMapped</span> <span class="s2">&quot;VehicleSpeed&quot;</span>
+<span class="nb">set</span> <span class="o">./</span><span class="n">VarA</span><span class="o">.</span><span class="n">Value</span> <span class="mf">3.14</span>
+</pre></div>
+</div>
+<p>Selection-targeted attribute set:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">&#64;selection</span> <span class="pre">set</span> <span class="pre">&lt;attr&gt;</span> <span class="pre">&lt;value&gt;</span></code></p></li>
+<li><p>or shorthand via object paths and aliases.</p></li>
+</ul>
+</section>
+<section id="new-type-catalogue">
+<h2><code class="docutils literal notranslate"><span class="pre">new</span></code> Type Catalogue<a class="headerlink" href="#new-type-catalogue" title="Link to this heading">¶</a></h2>
+<p>Minimum supported construction types:</p>
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>Type</p></th>
+<th class="head"><p>Intent</p></th>
+<th class="head"><p>Canonical syntax</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">Variable</span></code></p></td>
+<td><p>Create a variable node</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">new</span> <span class="pre">Variable</span> <span class="pre">&lt;name&gt;</span> <span class="pre">&lt;x&gt;</span> <span class="pre">&lt;y&gt;</span> <span class="pre">&lt;size&gt;</span> <span class="pre">[refName=&quot;&lt;ref&gt;&quot;]</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">BasicOperator</span></code></p></td>
+<td><p>Create an operator node</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">new</span> <span class="pre">BasicOperator</span> <span class="pre">&lt;opSymbol&gt;</span> <span class="pre">&lt;x&gt;</span> <span class="pre">&lt;y&gt;</span> <span class="pre">[name=&quot;&lt;name&gt;&quot;]</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">Connector</span></code></p></td>
+<td><p>Create a connection edge</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">new</span> <span class="pre">Connector</span> <span class="pre">&lt;fromRef&gt;</span> <span class="pre">&lt;toRef&gt;</span> <span class="pre">idxInPin=&lt;int&gt;</span> <span class="pre">[idxOutPin=&lt;int&gt;]</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">DataViewer</span></code></p></td>
+<td><p>Create a viewer/plot node</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">new</span> <span class="pre">DataViewer</span> <span class="pre">&lt;x&gt;</span> <span class="pre">&lt;y&gt;</span> <span class="pre">[options...]</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">SignalFile</span></code></p></td>
+<td><p>Register/load a signal file</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">new</span> <span class="pre">SignalFile</span> <span class="pre">&quot;&lt;path&gt;&quot;</span> <span class="pre">[name=&quot;&lt;name&gt;&quot;]</span> <span class="pre">[fileType=&quot;&lt;type&gt;&quot;]</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">FMUModule</span></code></p></td>
+<td><p>Create an FMU-backed node</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">new</span> <span class="pre">FMUModule</span> <span class="pre">&quot;&lt;fmuPath&gt;&quot;</span> <span class="pre">&lt;x&gt;</span> <span class="pre">&lt;y&gt;</span> <span class="pre">&lt;size&gt;</span> <span class="pre">[refName=&quot;&lt;ref&gt;&quot;]</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">Module</span></code></p></td>
+<td><p>Create a submodule</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">new</span> <span class="pre">Module</span> <span class="pre">&quot;&lt;modelDescriptionPath&gt;&quot;</span> <span class="pre">&lt;x&gt;</span> <span class="pre">&lt;y&gt;</span> <span class="pre">&lt;size&gt;</span> <span class="pre">[refName=&quot;&lt;ref&gt;&quot;]</span></code></p></td>
+</tr>
+</tbody>
+</table>
+<p>Pin semantics:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">idxInPin</span></code>: destination input pin index</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">idxOutPin</span></code>: source output pin index</p></li>
+</ul>
+</section>
+<section id="set-forms">
+<h2><code class="docutils literal notranslate"><span class="pre">set</span></code> Forms<a class="headerlink" href="#set-forms" title="Link to this heading">¶</a></h2>
+<ol class="arabic simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">set</span> <span class="pre">&lt;path&gt;.&lt;attr&gt;</span> <span class="pre">&lt;value&gt;</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">set</span> <span class="pre">&lt;attr&gt;</span> <span class="pre">&lt;value&gt;</span></code> (applies to current context)</p></li>
+</ol>
+<p>Examples:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="nb">set</span> <span class="nd">@objects</span><span class="o">/</span><span class="n">variables</span><span class="o">/</span><span class="n">Speed</span><span class="o">.</span><span class="n">stim_const_val</span> <span class="mf">10.0</span>
+<span class="nb">set</span> <span class="n">LogLevel</span> <span class="mi">1</span>
+</pre></div>
+</div>
+</section>
+<section id="select-and-del">
+<h2><code class="docutils literal notranslate"><span class="pre">select</span></code> and <code class="docutils literal notranslate"><span class="pre">del</span></code><a class="headerlink" href="#select-and-del" title="Link to this heading">¶</a></h2>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">select</span> <span class="pre">&lt;ref1&gt;</span> <span class="pre">&lt;ref2&gt;</span> <span class="pre">...</span></code> replaces current selection in specified order.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">del</span> <span class="pre">&lt;ref1&gt;</span> <span class="pre">&lt;ref2&gt;</span> <span class="pre">...</span></code> deletes referenced objects and deterministically updates dependent structures (selection/connectors).</p></li>
+</ul>
+</section>
+<section id="script-execution">
+<h2>Script Execution<a class="headerlink" href="#script-execution" title="Link to this heading">¶</a></h2>
+<p>A script is UTF-8 plain text with one command per line.</p>
+<ul class="simple">
+<li><p>Execution order: top to bottom.</p></li>
+<li><p>Optional: reset ID counters at script start (configurable).</p></li>
+<li><p>Default failure behavior: stop on first error and surface it.</p></li>
+<li><p>Optional mode: continue-on-error with full failure log.</p></li>
+</ul>
+</section>
+<section id="safety-requirements">
+<h2>Safety Requirements<a class="headerlink" href="#safety-requirements" title="Link to this heading">¶</a></h2>
+<ul class="simple">
+<li><p>No <code class="docutils literal notranslate"><span class="pre">eval</span></code> in production mode.</p></li>
+<li><p>Use safe parsing for typed values.</p></li>
+<li><p>If collection literals are supported, parsing must be explicit, safe, and deterministic.</p></li>
+</ul>
+</section>
+<section id="integrated-summary">
+<h2>Integrated Summary<a class="headerlink" href="#integrated-summary" title="Link to this heading">¶</a></h2>
+<section id="a-command-summary">
+<h3>A) Command Summary<a class="headerlink" href="#a-command-summary" title="Link to this heading">¶</a></h3>
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>Command</p></th>
+<th class="head"><p>Category</p></th>
+<th class="head"><p>Targeting</p></th>
+<th class="head"><p>Typical usage</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">ls</span></code>, <code class="docutils literal notranslate"><span class="pre">lsattr</span></code></p></td>
+<td><p>Inspection</p></td>
+<td><p>Current context</p></td>
+<td><p>Debugging and exploration</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">cd</span></code></p></td>
+<td><p>Navigation</p></td>
+<td><p>Path</p></td>
+<td><p>Change active folder/subgraph</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">new</span></code></p></td>
+<td><p>Construction</p></td>
+<td><p>Type registry</p></td>
+<td><p>Build graph/nodes/viewers</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">select</span></code></p></td>
+<td><p>Interaction</p></td>
+<td><p>Refs</p></td>
+<td><p>Prepare batch operations</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">set</span></code></p></td>
+<td><p>Mutation</p></td>
+<td><p>Path / selection / context</p></td>
+<td><p>Configure objects and runtime</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">del</span></code></p></td>
+<td><p>Mutation</p></td>
+<td><p>Refs</p></td>
+<td><p>Remove nodes/edges</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="b-construction-type-summary">
+<h3>B) Construction Type Summary<a class="headerlink" href="#b-construction-type-summary" title="Link to this heading">¶</a></h3>
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>Type</p></th>
+<th class="head"><p>Produces</p></th>
+<th class="head"><p>Connectable</p></th>
+<th class="head"><p>External resource</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">Variable</span></code></p></td>
+<td><p>Node</p></td>
+<td><p>Yes</p></td>
+<td><p>No</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">BasicOperator</span></code></p></td>
+<td><p>Node</p></td>
+<td><p>Yes</p></td>
+<td><p>No</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">Connector</span></code></p></td>
+<td><p>Edge</p></td>
+<td><p>N/A</p></td>
+<td><p>No</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">DataViewer</span></code></p></td>
+<td><p>Viewer node</p></td>
+<td><p>Reads variables</p></td>
+<td><p>No</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">SignalFile</span></code></p></td>
+<td><p>Signal source</p></td>
+<td><p>Maps to variables</p></td>
+<td><p>Yes (file)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">FMUModule</span></code></p></td>
+<td><p>Node</p></td>
+<td><p>Yes</p></td>
+<td><p>Yes (<code class="docutils literal notranslate"><span class="pre">.fmu</span></code>)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">Module</span></code></p></td>
+<td><p>Node</p></td>
+<td><p>Yes</p></td>
+<td><p>Yes (model description file)</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+</section>
+</section>
+
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="../index.html">synarius-core</a></h1>
+
+
+
+
+
+
+
+
+
+<search id="searchbox" style="display: none" role="search">
+    <div class="searchformwrapper">
+    <form class="search" action="../search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script><h3>Navigation</h3>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../requirements/index.html">Requirements</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="index.html">Specifications</a><ul class="current">
+<li class="toctree-l2 current"><a class="current reference internal" href="#">Controller Command Protocol</a></li>
+</ul>
+</li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="../index.html">Documentation overview</a><ul>
+  <li><a href="index.html">Specifications</a><ul>
+      <li>Previous: <a href="index.html" title="previous chapter">Specifications</a></li>
+  </ul></li>
+  </ul></li>
+</ul>
+</div>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 9.0.4</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
+      
+      |
+      <a href="../_sources/specifications/controller_command_protocol.rst.txt"
+          rel="nofollow">Page source</a>
+    </div>
+
+    
+
+    
+  </body>
+</html>

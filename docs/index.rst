@@ -5,4 +5,5 @@ synarius-core Documentation
    :maxdepth: 2
 
    requirements/index
+   specifications/index
 
