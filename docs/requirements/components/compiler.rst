@@ -1,9 +1,15 @@
 Compiler Component Requirements
 ===============================
 
-.. comp:: Syntax graph analysis shall derive inputs, outputs, locals, and connection structure reliably.
+.. comp:: Syntax Graph Construction
    :id: CORE-COMP-CGEN-001
+   :status: Must
 
-.. comp:: The model shall be transformed into an XML intermediate representation from which executable code is generated.
+   Graph analysis derives inputs, outputs, locals, and connection structure reliably.
+
+.. comp:: XML Intermediate Representation
    :id: CORE-COMP-CGEN-002
+   :status: Must
+
+   The model is transformed into an XML intermediate representation and executable code is generated from it.
 

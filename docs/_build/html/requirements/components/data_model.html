@@ -31,7 +31,7 @@
     <link rel="index" title="Index" href="../../genindex.html" />
     <link rel="search" title="Search" href="../../search.html" />
     <link rel="next" title="Compiler Component Requirements" href="compiler.html" />
-    <link rel="prev" title="Controller Command Protocol" href="controller_command_protocol.html" />
+    <link rel="prev" title="Controller Component Requirements" href="controller.html" />
    
   <link rel="stylesheet" href="../../_static/custom.css" type="text/css" />
   
@@ -51,78 +51,83 @@
             
   <section id="data-model-component-requirements">
 <h1>Data Model Component Requirements<a class="headerlink" href="#data-model-component-requirements" title="Link to this heading">¶</a></h1>
-<div class="need_container docutils container" id="SNCB-5aa16f3e">
+<div class="need_container docutils container" id="SNCB-97f4ac97">
 <table class="need needs_grid_simple needs_layout_clean needs_style_none needs_type_comp docutils align-default" id="CORE-COMP-DATA-001">
 <tbody>
 <tr class="need head row-odd"><td class="need head"><div class="needs_head line-block">
-<div class="line"><span><span class="needs_type_name"><span class="needs_data">Component Requirement</span></span>: </span><strong><span><span class="needs_title"><span class="needs_data">The data model shall provide explicit node/connector modeling with defined input/output pins.</span></span></span></strong><span> <span class="needs-id"><a class="reference internal" href="#CORE-COMP-DATA-001" title="CORE-COMP-DATA-001">CORE-COMP-DATA-001</a></span>  <span class="needs needs_collapse" id="target__show__meta"><span class="needs collapsed"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-arrow-down-circle"><circle cx="12" cy="12" r="10"></circle><polyline points="8 12 12 16 16 12"></polyline><line x1="12" y1="8" x2="12" y2="16"></line></svg></span><span class="needs visible collapse_is_hidden"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-arrow-right-circle"><circle cx="12" cy="12" r="10"></circle><polyline points="12 16 16 12 12 8"></polyline><line x1="8" y1="12" x2="16" y2="12"></line></svg></span></span> </span></div>
+<div class="line"><span><span class="needs_type_name"><span class="needs_data">Component Requirement</span></span>: </span><strong><span><span class="needs_title"><span class="needs_data">Node/Connector Model with Pins</span></span></span></strong><span> <span class="needs-id"><a class="reference internal" href="#CORE-COMP-DATA-001" title="CORE-COMP-DATA-001">CORE-COMP-DATA-001</a></span>  <span class="needs needs_collapse" id="target__show__meta"><span class="needs collapsed"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-arrow-down-circle"><circle cx="12" cy="12" r="10"></circle><polyline points="8 12 12 16 16 12"></polyline><line x1="12" y1="8" x2="12" y2="16"></line></svg></span><span class="needs visible collapse_is_hidden"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-arrow-right-circle"><circle cx="12" cy="12" r="10"></circle><polyline points="12 16 16 12 12 8"></polyline><line x1="8" y1="12" x2="16" y2="12"></line></svg></span></span> </span></div>
 </div>
 </td>
 </tr>
 <tr class="need meta row-even"><td class="need meta"><div class="needs_meta line-block">
-<div class="line"><span><span></span></span></div>
+<div class="line"><span><span><div class="line"><span class="needs_status"><span class="needs_label">status: </span><span class="needs_data">Must</span></span></div>
+</span></span></div>
 <div class="line"><span></span></div>
 </div>
 </td>
 </tr>
-<tr class="need content row-odd"><td class="need content" colspan="1"></td>
+<tr class="need content row-odd"><td class="need content" colspan="1"><p>Elements provide defined inputs/outputs, and connections are modeled explicitly.</p></td>
 </tr>
 </tbody>
 </table>
 </div>
-<div class="need_container docutils container" id="SNCB-784096f4">
+<div class="need_container docutils container" id="SNCB-789a29ef">
 <table class="need needs_grid_simple needs_layout_clean needs_style_none needs_type_comp docutils align-default" id="CORE-COMP-DATA-002">
 <tbody>
 <tr class="need head row-odd"><td class="need head"><div class="needs_head line-block">
-<div class="line"><span><span class="needs_type_name"><span class="needs_data">Component Requirement</span></span>: </span><strong><span><span class="needs_title"><span class="needs_data">Stable object addressing shall be supported consistently via body key, name, display name, and ID.</span></span></span></strong><span> <span class="needs-id"><a class="reference internal" href="#CORE-COMP-DATA-002" title="CORE-COMP-DATA-002">CORE-COMP-DATA-002</a></span>  <span class="needs needs_collapse" id="target__show__meta"><span class="needs collapsed"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-arrow-down-circle"><circle cx="12" cy="12" r="10"></circle><polyline points="8 12 12 16 16 12"></polyline><line x1="12" y1="8" x2="12" y2="16"></line></svg></span><span class="needs visible collapse_is_hidden"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-arrow-right-circle"><circle cx="12" cy="12" r="10"></circle><polyline points="12 16 16 12 12 8"></polyline><line x1="8" y1="12" x2="16" y2="12"></line></svg></span></span> </span></div>
+<div class="line"><span><span class="needs_type_name"><span class="needs_data">Component Requirement</span></span>: </span><strong><span><span class="needs_title"><span class="needs_data">Stable Object Addressing</span></span></span></strong><span> <span class="needs-id"><a class="reference internal" href="#CORE-COMP-DATA-002" title="CORE-COMP-DATA-002">CORE-COMP-DATA-002</a></span>  <span class="needs needs_collapse" id="target__show__meta"><span class="needs collapsed"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-arrow-down-circle"><circle cx="12" cy="12" r="10"></circle><polyline points="8 12 12 16 16 12"></polyline><line x1="12" y1="8" x2="12" y2="16"></line></svg></span><span class="needs visible collapse_is_hidden"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-arrow-right-circle"><circle cx="12" cy="12" r="10"></circle><polyline points="12 16 16 12 12 8"></polyline><line x1="8" y1="12" x2="16" y2="12"></line></svg></span></span> </span></div>
 </div>
 </td>
 </tr>
 <tr class="need meta row-even"><td class="need meta"><div class="needs_meta line-block">
-<div class="line"><span><span></span></span></div>
+<div class="line"><span><span><div class="line"><span class="needs_status"><span class="needs_label">status: </span><span class="needs_data">Must</span></span></div>
+</span></span></div>
 <div class="line"><span></span></div>
 </div>
 </td>
 </tr>
-<tr class="need content row-odd"><td class="need content" colspan="1"></td>
+<tr class="need content row-odd"><td class="need content" colspan="1"><p>Access by body key, name, display name, and ID is consistently supported.</p></td>
 </tr>
 </tbody>
 </table>
 </div>
-<div class="need_container docutils container" id="SNCB-62522b5d">
+<div class="need_container docutils container" id="SNCB-2f950c29">
 <table class="need needs_grid_simple needs_layout_clean needs_style_none needs_type_comp docutils align-default" id="CORE-COMP-DATA-003">
 <tbody>
 <tr class="need head row-odd"><td class="need head"><div class="needs_head line-block">
-<div class="line"><span><span class="needs_type_name"><span class="needs_data">Component Requirement</span></span>: </span><strong><span><span class="needs_title"><span class="needs_data">A central object/variable handler should be used as consolidated variable layer for mapping and recorder integration.</span></span></span></strong><span> <span class="needs-id"><a class="reference internal" href="#CORE-COMP-DATA-003" title="CORE-COMP-DATA-003">CORE-COMP-DATA-003</a></span>  <span class="needs needs_collapse" id="target__show__meta"><span class="needs collapsed"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-arrow-down-circle"><circle cx="12" cy="12" r="10"></circle><polyline points="8 12 12 16 16 12"></polyline><line x1="12" y1="8" x2="12" y2="16"></line></svg></span><span class="needs visible collapse_is_hidden"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-arrow-right-circle"><circle cx="12" cy="12" r="10"></circle><polyline points="12 16 16 12 12 8"></polyline><line x1="8" y1="12" x2="16" y2="12"></line></svg></span></span> </span></div>
+<div class="line"><span><span class="needs_type_name"><span class="needs_data">Component Requirement</span></span>: </span><strong><span><span class="needs_title"><span class="needs_data">ObjectHandler as Central Variable Layer</span></span></span></strong><span> <span class="needs-id"><a class="reference internal" href="#CORE-COMP-DATA-003" title="CORE-COMP-DATA-003">CORE-COMP-DATA-003</a></span>  <span class="needs needs_collapse" id="target__show__meta"><span class="needs collapsed"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-arrow-down-circle"><circle cx="12" cy="12" r="10"></circle><polyline points="8 12 12 16 16 12"></polyline><line x1="12" y1="8" x2="12" y2="16"></line></svg></span><span class="needs visible collapse_is_hidden"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-arrow-right-circle"><circle cx="12" cy="12" r="10"></circle><polyline points="12 16 16 12 12 8"></polyline><line x1="8" y1="12" x2="16" y2="12"></line></svg></span></span> </span></div>
 </div>
 </td>
 </tr>
 <tr class="need meta row-even"><td class="need meta"><div class="needs_meta line-block">
-<div class="line"><span><span></span></span></div>
+<div class="line"><span><span><div class="line"><span class="needs_status"><span class="needs_label">status: </span><span class="needs_data">Should</span></span></div>
+</span></span></div>
 <div class="line"><span></span></div>
 </div>
 </td>
 </tr>
-<tr class="need content row-odd"><td class="need content" colspan="1"></td>
+<tr class="need content row-odd"><td class="need content" colspan="1"><p>Variable instances are consolidated so mapping and recorder features rely on a central structure.</p></td>
 </tr>
 </tbody>
 </table>
 </div>
-<div class="need_container docutils container" id="SNCB-fcd9b36f">
+<div class="need_container docutils container" id="SNCB-0483e90c">
 <table class="need needs_grid_simple needs_layout_clean needs_style_none needs_type_comp docutils align-default" id="CORE-COMP-DATA-004">
 <tbody>
 <tr class="need head row-odd"><td class="need head"><div class="needs_head line-block">
-<div class="line"><span><span class="needs_type_name"><span class="needs_data">Component Requirement</span></span>: </span><strong><span><span class="needs_title"><span class="needs_data">Persistent objects shall be managed in a central database (SQLAlchemy + SQLite), while model instances are represented in tree form.</span></span></span></strong><span> <span class="needs-id"><a class="reference internal" href="#CORE-COMP-DATA-004" title="CORE-COMP-DATA-004">CORE-COMP-DATA-004</a></span>  <span class="needs needs_collapse" id="target__show__meta"><span class="needs collapsed"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-arrow-down-circle"><circle cx="12" cy="12" r="10"></circle><polyline points="8 12 12 16 16 12"></polyline><line x1="12" y1="8" x2="12" y2="16"></line></svg></span><span class="needs visible collapse_is_hidden"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-arrow-right-circle"><circle cx="12" cy="12" r="10"></circle><polyline points="12 16 16 12 12 8"></polyline><line x1="8" y1="12" x2="16" y2="12"></line></svg></span></span> </span></div>
+<div class="line"><span><span class="needs_type_name"><span class="needs_data">Component Requirement</span></span>: </span><strong><span><span class="needs_title"><span class="needs_data">Persistent Object Storage</span></span></span></strong><span> <span class="needs-id"><a class="reference internal" href="#CORE-COMP-DATA-004" title="CORE-COMP-DATA-004">CORE-COMP-DATA-004</a></span>  <span class="needs needs_collapse" id="target__show__meta"><span class="needs collapsed"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-arrow-down-circle"><circle cx="12" cy="12" r="10"></circle><polyline points="8 12 12 16 16 12"></polyline><line x1="12" y1="8" x2="12" y2="16"></line></svg></span><span class="needs visible collapse_is_hidden"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-arrow-right-circle"><circle cx="12" cy="12" r="10"></circle><polyline points="12 16 16 12 12 8"></polyline><line x1="8" y1="12" x2="16" y2="12"></line></svg></span></span> </span></div>
 </div>
 </td>
 </tr>
 <tr class="need meta row-even"><td class="need meta"><div class="needs_meta line-block">
-<div class="line"><span><span></span></span></div>
+<div class="line"><span><span><div class="line"><span class="needs_status"><span class="needs_label">status: </span><span class="needs_data">Must</span></span></div>
+</span></span></div>
 <div class="line"><span></span></div>
 </div>
 </td>
 </tr>
-<tr class="need content row-odd"><td class="need content" colspan="1"></td>
+<tr class="need content row-odd"><td class="need content" colspan="1"><p>Objects are stored in a central SQLAlchemy + SQLite database, while model instances are represented in a model tree.
+A variable may appear multiple times in the model tree while still representing a single logical variable.</p></td>
 </tr>
 </tbody>
 </table>
@@ -160,6 +165,7 @@
 <li class="toctree-l2 current"><a class="reference internal" href="../index.html#id-policy">ID Policy</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="../../specifications/index.html">Specifications</a></li>
 </ul>
 
 <div class="relations">
@@ -168,7 +174,7 @@
   <li><a href="../../index.html">Documentation overview</a><ul>
   <li><a href="../index.html">Requirements</a><ul>
   <li><a href="index.html">Component Requirements</a><ul>
-      <li>Previous: <a href="controller_command_protocol.html" title="previous chapter">Controller Command Protocol</a></li>
+      <li>Previous: <a href="controller.html" title="previous chapter">Controller Component Requirements</a></li>
       <li>Next: <a href="compiler.html" title="next chapter">Compiler Component Requirements</a></li>
   </ul></li>
   </ul></li>

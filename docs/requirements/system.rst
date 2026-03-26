@@ -1,30 +1,57 @@
 System Requirements
 ===================
 
-.. sys:: A standalone command-line shell shall be provided to control Synarius Core.
+.. sys:: Standalone Command-Line Shell
    :id: CORE-SYS-001
+   :status: Must
 
-.. sys:: Projects shall be loadable from text-based script files and executable line-by-line as commands.
+   Synarius Core provides a standalone command-line shell for controller-driven operation.
+
+.. sys:: Script/Command Execution (.syn)
    :id: CORE-SYS-002
+   :status: Must
 
-.. sys:: The system shall support an explicit Edit mode and Simulation mode.
+   Projects can be loaded from text-based scripts and executed line-by-line as commands.
+
+.. sys:: Edit/Simulation Mode Concept
    :id: CORE-SYS-003
+   :status: Must
 
-.. sys:: FMU elements shall be loadable and executable according to the FMI init/step lifecycle.
+   The system supports an explicit edit mode and simulation mode.
+
+.. sys:: FMU Integration (FMI)
    :id: CORE-SYS-004
+   :status: Must
 
-.. sys:: Signal sources (at minimum MDF and CSV) shall be loadable and mappable to variables.
+   FMU elements can be loaded and simulated according to FMI init/step sequencing.
+
+.. sys:: Signal Loading and Mapping
    :id: CORE-SYS-005
+   :status: Must
 
-.. sys:: Variables shall be stimulatable and measurable during simulation mode.
+   Signal sources (at minimum MDF and CSV) can be loaded and mapped to variables.
+
+.. sys:: Stimulation and Measurement
    :id: CORE-SYS-006
+   :status: Must
 
-.. sys:: Simulation data shall be visualizable in data viewers with cyclic updates.
+   Variables can be stimulated and measured in simulation mode.
+
+.. sys:: Data Viewer / Plot Display
    :id: CORE-SYS-007
+   :status: Must
 
-.. sys:: Selected or all variables shall be recordable and exportable to MDF.
+   Simulation data can be visualized in data viewers and updated cyclically.
+
+.. sys:: Recording and Export
    :id: CORE-SYS-008
+   :status: Must
 
-.. sys:: Submodules should be embeddable as blocks and integrable into a simulation.
+   Selected or all variables can be recorded and exported to MDF.
+
+.. sys:: Submodule Integration
    :id: CORE-SYS-009
+   :status: Should
+
+   Submodules can be embedded as blocks and integrated into simulation.
 

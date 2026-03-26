@@ -30,6 +30,7 @@
     <script src="../../_static/sphinx-needs/libs/html/sphinx_needs_collapse.js?v=dca66431"></script>
     <link rel="index" title="Index" href="../../genindex.html" />
     <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="Specifications" href="../../specifications/index.html" />
     <link rel="prev" title="Compiler Component Requirements" href="compiler.html" />
    
   <link rel="stylesheet" href="../../_static/custom.css" type="text/css" />
@@ -50,154 +51,162 @@
             
   <section id="run-engine-component-requirements">
 <h1>Run Engine Component Requirements<a class="headerlink" href="#run-engine-component-requirements" title="Link to this heading">¶</a></h1>
-<div class="need_container docutils container" id="SNCB-7f1ad9fe">
+<div class="need_container docutils container" id="SNCB-5e8f0ee1">
 <table class="need needs_grid_simple needs_layout_clean needs_style_none needs_type_comp docutils align-default" id="CORE-COMP-RUN-001">
 <tbody>
 <tr class="need head row-odd"><td class="need head"><div class="needs_head line-block">
-<div class="line"><span><span class="needs_type_name"><span class="needs_data">Component Requirement</span></span>: </span><strong><span><span class="needs_title"><span class="needs_data">The run loop shall implement FMI-conform lifecycle handling including setupExperiment, enter/exit initialization, and cyclic doStep.</span></span></span></strong><span> <span class="needs-id"><a class="reference internal" href="#CORE-COMP-RUN-001" title="CORE-COMP-RUN-001">CORE-COMP-RUN-001</a></span>  <span class="needs needs_collapse" id="target__show__meta"><span class="needs collapsed"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-arrow-down-circle"><circle cx="12" cy="12" r="10"></circle><polyline points="8 12 12 16 16 12"></polyline><line x1="12" y1="8" x2="12" y2="16"></line></svg></span><span class="needs visible collapse_is_hidden"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-arrow-right-circle"><circle cx="12" cy="12" r="10"></circle><polyline points="12 16 16 12 12 8"></polyline><line x1="8" y1="12" x2="16" y2="12"></line></svg></span></span> </span></div>
+<div class="line"><span><span class="needs_type_name"><span class="needs_data">Component Requirement</span></span>: </span><strong><span><span class="needs_title"><span class="needs_data">FMI-Conform Run Loop</span></span></span></strong><span> <span class="needs-id"><a class="reference internal" href="#CORE-COMP-RUN-001" title="CORE-COMP-RUN-001">CORE-COMP-RUN-001</a></span>  <span class="needs needs_collapse" id="target__show__meta"><span class="needs collapsed"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-arrow-down-circle"><circle cx="12" cy="12" r="10"></circle><polyline points="8 12 12 16 16 12"></polyline><line x1="12" y1="8" x2="12" y2="16"></line></svg></span><span class="needs visible collapse_is_hidden"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-arrow-right-circle"><circle cx="12" cy="12" r="10"></circle><polyline points="12 16 16 12 12 8"></polyline><line x1="8" y1="12" x2="16" y2="12"></line></svg></span></span> </span></div>
 </div>
 </td>
 </tr>
 <tr class="need meta row-even"><td class="need meta"><div class="needs_meta line-block">
-<div class="line"><span><span></span></span></div>
+<div class="line"><span><span><div class="line"><span class="needs_status"><span class="needs_label">status: </span><span class="needs_data">Must</span></span></div>
+</span></span></div>
 <div class="line"><span></span></div>
 </div>
 </td>
 </tr>
-<tr class="need content row-odd"><td class="need content" colspan="1"></td>
+<tr class="need content row-odd"><td class="need content" colspan="1"><p>The run loop implements setupExperiment, enter/exit initialization, and cyclic doStep.</p></td>
 </tr>
 </tbody>
 </table>
 </div>
-<div class="need_container docutils container" id="SNCB-c89469f6">
+<div class="need_container docutils container" id="SNCB-7009108f">
 <table class="need needs_grid_simple needs_layout_clean needs_style_none needs_type_comp docutils align-default" id="CORE-COMP-RUN-002">
 <tbody>
 <tr class="need head row-odd"><td class="need head"><div class="needs_head line-block">
-<div class="line"><span><span class="needs_type_name"><span class="needs_data">Component Requirement</span></span>: </span><strong><span><span class="needs_title"><span class="needs_data">Simulation cycles should provide deterministic synchronization hooks.</span></span></span></strong><span> <span class="needs-id"><a class="reference internal" href="#CORE-COMP-RUN-002" title="CORE-COMP-RUN-002">CORE-COMP-RUN-002</a></span>  <span class="needs needs_collapse" id="target__show__meta"><span class="needs collapsed"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-arrow-down-circle"><circle cx="12" cy="12" r="10"></circle><polyline points="8 12 12 16 16 12"></polyline><line x1="12" y1="8" x2="12" y2="16"></line></svg></span><span class="needs visible collapse_is_hidden"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-arrow-right-circle"><circle cx="12" cy="12" r="10"></circle><polyline points="12 16 16 12 12 8"></polyline><line x1="8" y1="12" x2="16" y2="12"></line></svg></span></span> </span></div>
+<div class="line"><span><span class="needs_type_name"><span class="needs_data">Component Requirement</span></span>: </span><strong><span><span class="needs_title"><span class="needs_data">Cycle Synchronization</span></span></span></strong><span> <span class="needs-id"><a class="reference internal" href="#CORE-COMP-RUN-002" title="CORE-COMP-RUN-002">CORE-COMP-RUN-002</a></span>  <span class="needs needs_collapse" id="target__show__meta"><span class="needs collapsed"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-arrow-down-circle"><circle cx="12" cy="12" r="10"></circle><polyline points="8 12 12 16 16 12"></polyline><line x1="12" y1="8" x2="12" y2="16"></line></svg></span><span class="needs visible collapse_is_hidden"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-arrow-right-circle"><circle cx="12" cy="12" r="10"></circle><polyline points="12 16 16 12 12 8"></polyline><line x1="8" y1="12" x2="16" y2="12"></line></svg></span></span> </span></div>
 </div>
 </td>
 </tr>
 <tr class="need meta row-even"><td class="need meta"><div class="needs_meta line-block">
-<div class="line"><span><span></span></span></div>
+<div class="line"><span><span><div class="line"><span class="needs_status"><span class="needs_label">status: </span><span class="needs_data">Should</span></span></div>
+</span></span></div>
 <div class="line"><span></span></div>
 </div>
 </td>
 </tr>
-<tr class="need content row-odd"><td class="need content" colspan="1"></td>
+<tr class="need content row-odd"><td class="need content" colspan="1"><p>After each simulation cycle, defined synchronization hooks are available.</p></td>
 </tr>
 </tbody>
 </table>
 </div>
-<div class="need_container docutils container" id="SNCB-e0f7f690">
+<div class="need_container docutils container" id="SNCB-bee981bb">
 <table class="need needs_grid_simple needs_layout_clean needs_style_none needs_type_comp docutils align-default" id="CORE-COMP-RUN-003">
 <tbody>
 <tr class="need head row-odd"><td class="need head"><div class="needs_head line-block">
-<div class="line"><span><span class="needs_type_name"><span class="needs_data">Component Requirement</span></span>: </span><strong><span><span class="needs_title"><span class="needs_data">A stimulus file should be loadable and applicable to mapped variables.</span></span></span></strong><span> <span class="needs-id"><a class="reference internal" href="#CORE-COMP-RUN-003" title="CORE-COMP-RUN-003">CORE-COMP-RUN-003</a></span>  <span class="needs needs_collapse" id="target__show__meta"><span class="needs collapsed"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-arrow-down-circle"><circle cx="12" cy="12" r="10"></circle><polyline points="8 12 12 16 16 12"></polyline><line x1="12" y1="8" x2="12" y2="16"></line></svg></span><span class="needs visible collapse_is_hidden"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-arrow-right-circle"><circle cx="12" cy="12" r="10"></circle><polyline points="12 16 16 12 12 8"></polyline><line x1="8" y1="12" x2="16" y2="12"></line></svg></span></span> </span></div>
+<div class="line"><span><span class="needs_type_name"><span class="needs_data">Component Requirement</span></span>: </span><strong><span><span class="needs_title"><span class="needs_data">File-Based Stimulation</span></span></span></strong><span> <span class="needs-id"><a class="reference internal" href="#CORE-COMP-RUN-003" title="CORE-COMP-RUN-003">CORE-COMP-RUN-003</a></span>  <span class="needs needs_collapse" id="target__show__meta"><span class="needs collapsed"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-arrow-down-circle"><circle cx="12" cy="12" r="10"></circle><polyline points="8 12 12 16 16 12"></polyline><line x1="12" y1="8" x2="12" y2="16"></line></svg></span><span class="needs visible collapse_is_hidden"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-arrow-right-circle"><circle cx="12" cy="12" r="10"></circle><polyline points="12 16 16 12 12 8"></polyline><line x1="8" y1="12" x2="16" y2="12"></line></svg></span></span> </span></div>
 </div>
 </td>
 </tr>
 <tr class="need meta row-even"><td class="need meta"><div class="needs_meta line-block">
-<div class="line"><span><span></span></span></div>
+<div class="line"><span><span><div class="line"><span class="needs_status"><span class="needs_label">status: </span><span class="needs_data">Should</span></span></div>
+</span></span></div>
 <div class="line"><span></span></div>
 </div>
 </td>
 </tr>
-<tr class="need content row-odd"><td class="need content" colspan="1"></td>
+<tr class="need content row-odd"><td class="need content" colspan="1"><p>A stimulus file can be loaded and its signals can drive variable stimulation.</p></td>
 </tr>
 </tbody>
 </table>
 </div>
-<div class="need_container docutils container" id="SNCB-593550dd">
+<div class="need_container docutils container" id="SNCB-372fe98e">
 <table class="need needs_grid_simple needs_layout_clean needs_style_none needs_type_comp docutils align-default" id="CORE-COMP-RUN-004">
 <tbody>
 <tr class="need head row-odd"><td class="need head"><div class="needs_head line-block">
-<div class="line"><span><span class="needs_type_name"><span class="needs_data">Component Requirement</span></span>: </span><strong><span><span class="needs_title"><span class="needs_data">Stimulus signals from files should be freely mappable to variables.</span></span></span></strong><span> <span class="needs-id"><a class="reference internal" href="#CORE-COMP-RUN-004" title="CORE-COMP-RUN-004">CORE-COMP-RUN-004</a></span>  <span class="needs needs_collapse" id="target__show__meta"><span class="needs collapsed"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-arrow-down-circle"><circle cx="12" cy="12" r="10"></circle><polyline points="8 12 12 16 16 12"></polyline><line x1="12" y1="8" x2="12" y2="16"></line></svg></span><span class="needs visible collapse_is_hidden"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-arrow-right-circle"><circle cx="12" cy="12" r="10"></circle><polyline points="12 16 16 12 12 8"></polyline><line x1="8" y1="12" x2="16" y2="12"></line></svg></span></span> </span></div>
+<div class="line"><span><span class="needs_type_name"><span class="needs_data">Component Requirement</span></span>: </span><strong><span><span class="needs_title"><span class="needs_data">Stimulus Mapping</span></span></span></strong><span> <span class="needs-id"><a class="reference internal" href="#CORE-COMP-RUN-004" title="CORE-COMP-RUN-004">CORE-COMP-RUN-004</a></span>  <span class="needs needs_collapse" id="target__show__meta"><span class="needs collapsed"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-arrow-down-circle"><circle cx="12" cy="12" r="10"></circle><polyline points="8 12 12 16 16 12"></polyline><line x1="12" y1="8" x2="12" y2="16"></line></svg></span><span class="needs visible collapse_is_hidden"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-arrow-right-circle"><circle cx="12" cy="12" r="10"></circle><polyline points="12 16 16 12 12 8"></polyline><line x1="8" y1="12" x2="16" y2="12"></line></svg></span></span> </span></div>
 </div>
 </td>
 </tr>
 <tr class="need meta row-even"><td class="need meta"><div class="needs_meta line-block">
-<div class="line"><span><span></span></span></div>
+<div class="line"><span><span><div class="line"><span class="needs_status"><span class="needs_label">status: </span><span class="needs_data">Should</span></span></div>
+</span></span></div>
 <div class="line"><span></span></div>
 </div>
 </td>
 </tr>
-<tr class="need content row-odd"><td class="need content" colspan="1"></td>
+<tr class="need content row-odd"><td class="need content" colspan="1"><p>Stimuli from a loaded file can be freely mapped to variables.</p></td>
 </tr>
 </tbody>
 </table>
 </div>
-<div class="need_container docutils container" id="SNCB-73098756">
+<div class="need_container docutils container" id="SNCB-0e6e2713">
 <table class="need needs_grid_simple needs_layout_clean needs_style_none needs_type_comp docutils align-default" id="CORE-COMP-RUN-005">
 <tbody>
 <tr class="need head row-odd"><td class="need head"><div class="needs_head line-block">
-<div class="line"><span><span class="needs_type_name"><span class="needs_data">Component Requirement</span></span>: </span><strong><span><span class="needs_title"><span class="needs_data">Generic stimulation shall support at least ramp, sine, constant, and random signal generation.</span></span></span></strong><span> <span class="needs-id"><a class="reference internal" href="#CORE-COMP-RUN-005" title="CORE-COMP-RUN-005">CORE-COMP-RUN-005</a></span>  <span class="needs needs_collapse" id="target__show__meta"><span class="needs collapsed"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-arrow-down-circle"><circle cx="12" cy="12" r="10"></circle><polyline points="8 12 12 16 16 12"></polyline><line x1="12" y1="8" x2="12" y2="16"></line></svg></span><span class="needs visible collapse_is_hidden"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-arrow-right-circle"><circle cx="12" cy="12" r="10"></circle><polyline points="12 16 16 12 12 8"></polyline><line x1="8" y1="12" x2="16" y2="12"></line></svg></span></span> </span></div>
+<div class="line"><span><span class="needs_type_name"><span class="needs_data">Component Requirement</span></span>: </span><strong><span><span class="needs_title"><span class="needs_data">Generic Stimulation</span></span></span></strong><span> <span class="needs-id"><a class="reference internal" href="#CORE-COMP-RUN-005" title="CORE-COMP-RUN-005">CORE-COMP-RUN-005</a></span>  <span class="needs needs_collapse" id="target__show__meta"><span class="needs collapsed"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-arrow-down-circle"><circle cx="12" cy="12" r="10"></circle><polyline points="8 12 12 16 16 12"></polyline><line x1="12" y1="8" x2="12" y2="16"></line></svg></span><span class="needs visible collapse_is_hidden"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-arrow-right-circle"><circle cx="12" cy="12" r="10"></circle><polyline points="12 16 16 12 12 8"></polyline><line x1="8" y1="12" x2="16" y2="12"></line></svg></span></span> </span></div>
 </div>
 </td>
 </tr>
 <tr class="need meta row-even"><td class="need meta"><div class="needs_meta line-block">
-<div class="line"><span><span></span></span></div>
+<div class="line"><span><span><div class="line"><span class="needs_status"><span class="needs_label">status: </span><span class="needs_data">Must</span></span></div>
+</span></span></div>
 <div class="line"><span></span></div>
 </div>
 </td>
 </tr>
-<tr class="need content row-odd"><td class="need content" colspan="1"></td>
+<tr class="need content row-odd"><td class="need content" colspan="1"><p>Variables can be stimulated generically using ramp, sine, constant, and random signals.</p></td>
 </tr>
 </tbody>
 </table>
 </div>
-<div class="need_container docutils container" id="SNCB-b846f9ff">
+<div class="need_container docutils container" id="SNCB-4a3156ad">
 <table class="need needs_grid_simple needs_layout_clean needs_style_none needs_type_comp docutils align-default" id="CORE-COMP-RUN-006">
 <tbody>
 <tr class="need head row-odd"><td class="need head"><div class="needs_head line-block">
-<div class="line"><span><span class="needs_type_name"><span class="needs_data">Component Requirement</span></span>: </span><strong><span><span class="needs_title"><span class="needs_data">MDF and CSV stimulus files should be supported for loading.</span></span></span></strong><span> <span class="needs-id"><a class="reference internal" href="#CORE-COMP-RUN-006" title="CORE-COMP-RUN-006">CORE-COMP-RUN-006</a></span>  <span class="needs needs_collapse" id="target__show__meta"><span class="needs collapsed"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-arrow-down-circle"><circle cx="12" cy="12" r="10"></circle><polyline points="8 12 12 16 16 12"></polyline><line x1="12" y1="8" x2="12" y2="16"></line></svg></span><span class="needs visible collapse_is_hidden"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-arrow-right-circle"><circle cx="12" cy="12" r="10"></circle><polyline points="12 16 16 12 12 8"></polyline><line x1="8" y1="12" x2="16" y2="12"></line></svg></span></span> </span></div>
+<div class="line"><span><span class="needs_type_name"><span class="needs_data">Component Requirement</span></span>: </span><strong><span><span class="needs_title"><span class="needs_data">Stimulus File Loading</span></span></span></strong><span> <span class="needs-id"><a class="reference internal" href="#CORE-COMP-RUN-006" title="CORE-COMP-RUN-006">CORE-COMP-RUN-006</a></span>  <span class="needs needs_collapse" id="target__show__meta"><span class="needs collapsed"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-arrow-down-circle"><circle cx="12" cy="12" r="10"></circle><polyline points="8 12 12 16 16 12"></polyline><line x1="12" y1="8" x2="12" y2="16"></line></svg></span><span class="needs visible collapse_is_hidden"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-arrow-right-circle"><circle cx="12" cy="12" r="10"></circle><polyline points="12 16 16 12 12 8"></polyline><line x1="8" y1="12" x2="16" y2="12"></line></svg></span></span> </span></div>
 </div>
 </td>
 </tr>
 <tr class="need meta row-even"><td class="need meta"><div class="needs_meta line-block">
-<div class="line"><span><span></span></span></div>
+<div class="line"><span><span><div class="line"><span class="needs_status"><span class="needs_label">status: </span><span class="needs_data">Should</span></span></div>
+</span></span></div>
 <div class="line"><span></span></div>
 </div>
 </td>
 </tr>
-<tr class="need content row-odd"><td class="need content" colspan="1"></td>
+<tr class="need content row-odd"><td class="need content" colspan="1"><p>MDF and CSV stimulus files can be loaded.</p></td>
 </tr>
 </tbody>
 </table>
 </div>
-<div class="need_container docutils container" id="SNCB-a401966b">
+<div class="need_container docutils container" id="SNCB-494acae0">
 <table class="need needs_grid_simple needs_layout_clean needs_style_none needs_type_comp docutils align-default" id="CORE-COMP-RUN-007">
 <tbody>
 <tr class="need head row-odd"><td class="need head"><div class="needs_head line-block">
-<div class="line"><span><span class="needs_type_name"><span class="needs_data">Component Requirement</span></span>: </span><strong><span><span class="needs_title"><span class="needs_data">Stimulus and measurement data shall be held internally as pandas DataFrames.</span></span></span></strong><span> <span class="needs-id"><a class="reference internal" href="#CORE-COMP-RUN-007" title="CORE-COMP-RUN-007">CORE-COMP-RUN-007</a></span>  <span class="needs needs_collapse" id="target__show__meta"><span class="needs collapsed"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-arrow-down-circle"><circle cx="12" cy="12" r="10"></circle><polyline points="8 12 12 16 16 12"></polyline><line x1="12" y1="8" x2="12" y2="16"></line></svg></span><span class="needs visible collapse_is_hidden"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-arrow-right-circle"><circle cx="12" cy="12" r="10"></circle><polyline points="12 16 16 12 12 8"></polyline><line x1="8" y1="12" x2="16" y2="12"></line></svg></span></span> </span></div>
+<div class="line"><span><span class="needs_type_name"><span class="needs_data">Component Requirement</span></span>: </span><strong><span><span class="needs_title"><span class="needs_data">Internal Dataframe Representation</span></span></span></strong><span> <span class="needs-id"><a class="reference internal" href="#CORE-COMP-RUN-007" title="CORE-COMP-RUN-007">CORE-COMP-RUN-007</a></span>  <span class="needs needs_collapse" id="target__show__meta"><span class="needs collapsed"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-arrow-down-circle"><circle cx="12" cy="12" r="10"></circle><polyline points="8 12 12 16 16 12"></polyline><line x1="12" y1="8" x2="12" y2="16"></line></svg></span><span class="needs visible collapse_is_hidden"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-arrow-right-circle"><circle cx="12" cy="12" r="10"></circle><polyline points="12 16 16 12 12 8"></polyline><line x1="8" y1="12" x2="16" y2="12"></line></svg></span></span> </span></div>
 </div>
 </td>
 </tr>
 <tr class="need meta row-even"><td class="need meta"><div class="needs_meta line-block">
-<div class="line"><span><span></span></span></div>
+<div class="line"><span><span><div class="line"><span class="needs_status"><span class="needs_label">status: </span><span class="needs_data">Must</span></span></div>
+</span></span></div>
 <div class="line"><span></span></div>
 </div>
 </td>
 </tr>
-<tr class="need content row-odd"><td class="need content" colspan="1"></td>
+<tr class="need content row-odd"><td class="need content" colspan="1"><p>Stimulus and measurement files are internally represented as pandas DataFrames.</p></td>
 </tr>
 </tbody>
 </table>
 </div>
-<div class="need_container docutils container" id="SNCB-b0cd08e4">
+<div class="need_container docutils container" id="SNCB-30ff8575">
 <table class="need needs_grid_simple needs_layout_clean needs_style_none needs_type_comp docutils align-default" id="CORE-COMP-RUN-008">
 <tbody>
 <tr class="need head row-odd"><td class="need head"><div class="needs_head line-block">
-<div class="line"><span><span class="needs_type_name"><span class="needs_data">Component Requirement</span></span>: </span><strong><span><span class="needs_title"><span class="needs_data">Selected or all variables shall be measurable over simulation time and automatically persisted when simulation ends.</span></span></span></strong><span> <span class="needs-id"><a class="reference internal" href="#CORE-COMP-RUN-008" title="CORE-COMP-RUN-008">CORE-COMP-RUN-008</a></span>  <span class="needs needs_collapse" id="target__show__meta"><span class="needs collapsed"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-arrow-down-circle"><circle cx="12" cy="12" r="10"></circle><polyline points="8 12 12 16 16 12"></polyline><line x1="12" y1="8" x2="12" y2="16"></line></svg></span><span class="needs visible collapse_is_hidden"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-arrow-right-circle"><circle cx="12" cy="12" r="10"></circle><polyline points="12 16 16 12 12 8"></polyline><line x1="8" y1="12" x2="16" y2="12"></line></svg></span></span> </span></div>
+<div class="line"><span><span class="needs_type_name"><span class="needs_data">Component Requirement</span></span>: </span><strong><span><span class="needs_title"><span class="needs_data">Simulation Measurement and Persistence</span></span></span></strong><span> <span class="needs-id"><a class="reference internal" href="#CORE-COMP-RUN-008" title="CORE-COMP-RUN-008">CORE-COMP-RUN-008</a></span>  <span class="needs needs_collapse" id="target__show__meta"><span class="needs collapsed"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-arrow-down-circle"><circle cx="12" cy="12" r="10"></circle><polyline points="8 12 12 16 16 12"></polyline><line x1="12" y1="8" x2="12" y2="16"></line></svg></span><span class="needs visible collapse_is_hidden"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-arrow-right-circle"><circle cx="12" cy="12" r="10"></circle><polyline points="12 16 16 12 12 8"></polyline><line x1="8" y1="12" x2="16" y2="12"></line></svg></span></span> </span></div>
 </div>
 </td>
 </tr>
 <tr class="need meta row-even"><td class="need meta"><div class="needs_meta line-block">
-<div class="line"><span><span></span></span></div>
+<div class="line"><span><span><div class="line"><span class="needs_status"><span class="needs_label">status: </span><span class="needs_data">Must</span></span></div>
+</span></span></div>
 <div class="line"><span></span></div>
 </div>
 </td>
 </tr>
-<tr class="need content row-odd"><td class="need content" colspan="1"></td>
+<tr class="need content row-odd"><td class="need content" colspan="1"><p>Selected or all variables are measured over simulation time and automatically persisted when simulation ends.</p></td>
 </tr>
 </tbody>
 </table>
@@ -235,6 +244,7 @@
 <li class="toctree-l2 current"><a class="reference internal" href="../index.html#id-policy">ID Policy</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="../../specifications/index.html">Specifications</a></li>
 </ul>
 
 <div class="relations">
@@ -244,6 +254,7 @@
   <li><a href="../index.html">Requirements</a><ul>
   <li><a href="index.html">Component Requirements</a><ul>
       <li>Previous: <a href="compiler.html" title="previous chapter">Compiler Component Requirements</a></li>
+      <li>Next: <a href="../../specifications/index.html" title="next chapter">Specifications</a></li>
   </ul></li>
   </ul></li>
   </ul></li>

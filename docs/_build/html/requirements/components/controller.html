@@ -30,7 +30,7 @@
     <script src="../../_static/sphinx-needs/libs/html/sphinx_needs_collapse.js?v=dca66431"></script>
     <link rel="index" title="Index" href="../../genindex.html" />
     <link rel="search" title="Search" href="../../search.html" />
-    <link rel="next" title="Controller Command Protocol" href="controller_command_protocol.html" />
+    <link rel="next" title="Data Model Component Requirements" href="data_model.html" />
     <link rel="prev" title="Core Components Overview" href="overview.html" />
    
   <link rel="stylesheet" href="../../_static/custom.css" type="text/css" />
@@ -51,59 +51,62 @@
             
   <section id="controller-component-requirements">
 <h1>Controller Component Requirements<a class="headerlink" href="#controller-component-requirements" title="Link to this heading">¶</a></h1>
-<div class="need_container docutils container" id="SNCB-df55084e">
+<div class="need_container docutils container" id="SNCB-547514c0">
 <table class="need needs_grid_simple needs_layout_clean needs_style_none needs_type_comp docutils align-default" id="CORE-COMP-CTL-001">
 <tbody>
 <tr class="need head row-odd"><td class="need head"><div class="needs_head line-block">
-<div class="line"><span><span class="needs_type_name"><span class="needs_data">Component Requirement</span></span>: </span><strong><span><span class="needs_title"><span class="needs_data">Script execution shall run command files deterministically line-by-line.</span></span></span></strong><span> <span class="needs-id"><a class="reference internal" href="#CORE-COMP-CTL-001" title="CORE-COMP-CTL-001">CORE-COMP-CTL-001</a></span>  <span class="needs needs_collapse" id="target__show__meta"><span class="needs collapsed"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-arrow-down-circle"><circle cx="12" cy="12" r="10"></circle><polyline points="8 12 12 16 16 12"></polyline><line x1="12" y1="8" x2="12" y2="16"></line></svg></span><span class="needs visible collapse_is_hidden"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-arrow-right-circle"><circle cx="12" cy="12" r="10"></circle><polyline points="12 16 16 12 12 8"></polyline><line x1="8" y1="12" x2="16" y2="12"></line></svg></span></span> </span></div>
+<div class="line"><span><span class="needs_type_name"><span class="needs_data">Component Requirement</span></span>: </span><strong><span><span class="needs_title"><span class="needs_data">Script Execution</span></span></span></strong><span> <span class="needs-id"><a class="reference internal" href="#CORE-COMP-CTL-001" title="CORE-COMP-CTL-001">CORE-COMP-CTL-001</a></span>  <span class="needs needs_collapse" id="target__show__meta"><span class="needs collapsed"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-arrow-down-circle"><circle cx="12" cy="12" r="10"></circle><polyline points="8 12 12 16 16 12"></polyline><line x1="12" y1="8" x2="12" y2="16"></line></svg></span><span class="needs visible collapse_is_hidden"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-arrow-right-circle"><circle cx="12" cy="12" r="10"></circle><polyline points="12 16 16 12 12 8"></polyline><line x1="8" y1="12" x2="16" y2="12"></line></svg></span></span> </span></div>
 </div>
 </td>
 </tr>
 <tr class="need meta row-even"><td class="need meta"><div class="needs_meta line-block">
-<div class="line"><span><span></span></span></div>
+<div class="line"><span><span><div class="line"><span class="needs_status"><span class="needs_label">status: </span><span class="needs_data">Must</span></span></div>
+</span></span></div>
 <div class="line"><span></span></div>
 </div>
 </td>
 </tr>
-<tr class="need content row-odd"><td class="need content" colspan="1"></td>
+<tr class="need content row-odd"><td class="need content" colspan="1"><p><code class="docutils literal notranslate"><span class="pre">execScript</span></code> executes <code class="docutils literal notranslate"><span class="pre">.pyp</span></code> scripts deterministically line-by-line.</p></td>
 </tr>
 </tbody>
 </table>
 </div>
-<div class="need_container docutils container" id="SNCB-a5cddf28">
+<div class="need_container docutils container" id="SNCB-b5b3ad8f">
 <table class="need needs_grid_simple needs_layout_clean needs_style_none needs_type_comp docutils align-default" id="CORE-COMP-CTL-002">
 <tbody>
 <tr class="need head row-odd"><td class="need head"><div class="needs_head line-block">
-<div class="line"><span><span class="needs_type_name"><span class="needs_data">Component Requirement</span></span>: </span><strong><span><span class="needs_title"><span class="needs_data">Object constructors for ``new`` shall be managed via a central, extensible type registry.</span></span></span></strong><span> <span class="needs-id"><a class="reference internal" href="#CORE-COMP-CTL-002" title="CORE-COMP-CTL-002">CORE-COMP-CTL-002</a></span>  <span class="needs needs_collapse" id="target__show__meta"><span class="needs collapsed"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-arrow-down-circle"><circle cx="12" cy="12" r="10"></circle><polyline points="8 12 12 16 16 12"></polyline><line x1="12" y1="8" x2="12" y2="16"></line></svg></span><span class="needs visible collapse_is_hidden"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-arrow-right-circle"><circle cx="12" cy="12" r="10"></circle><polyline points="12 16 16 12 12 8"></polyline><line x1="8" y1="12" x2="16" y2="12"></line></svg></span></span> </span></div>
+<div class="line"><span><span class="needs_type_name"><span class="needs_data">Component Requirement</span></span>: </span><strong><span><span class="needs_title"><span class="needs_data">Type Registry for ``new``</span></span></span></strong><span> <span class="needs-id"><a class="reference internal" href="#CORE-COMP-CTL-002" title="CORE-COMP-CTL-002">CORE-COMP-CTL-002</a></span>  <span class="needs needs_collapse" id="target__show__meta"><span class="needs collapsed"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-arrow-down-circle"><circle cx="12" cy="12" r="10"></circle><polyline points="8 12 12 16 16 12"></polyline><line x1="12" y1="8" x2="12" y2="16"></line></svg></span><span class="needs visible collapse_is_hidden"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-arrow-right-circle"><circle cx="12" cy="12" r="10"></circle><polyline points="12 16 16 12 12 8"></polyline><line x1="8" y1="12" x2="16" y2="12"></line></svg></span></span> </span></div>
 </div>
 </td>
 </tr>
 <tr class="need meta row-even"><td class="need meta"><div class="needs_meta line-block">
-<div class="line"><span><span></span></span></div>
+<div class="line"><span><span><div class="line"><span class="needs_status"><span class="needs_label">status: </span><span class="needs_data">Must</span></span></div>
+</span></span></div>
 <div class="line"><span></span></div>
 </div>
 </td>
 </tr>
-<tr class="need content row-odd"><td class="need content" colspan="1"></td>
+<tr class="need content row-odd"><td class="need content" colspan="1"><p>Constructors for element types are centrally registered and extensible.</p></td>
 </tr>
 </tbody>
 </table>
 </div>
-<div class="need_container docutils container" id="SNCB-2eaf28bc">
+<div class="need_container docutils container" id="SNCB-7455123e">
 <table class="need needs_grid_simple needs_layout_clean needs_style_none needs_type_comp docutils align-default" id="CORE-COMP-CTL-003">
 <tbody>
 <tr class="need head row-odd"><td class="need head"><div class="needs_head line-block">
-<div class="line"><span><span class="needs_type_name"><span class="needs_data">Component Requirement</span></span>: </span><strong><span><span class="needs_title"><span class="needs_data">The controller shall implement the Controller Command Protocol as normative interface behavior.</span></span></span></strong><span> <span class="needs-id"><a class="reference internal" href="#CORE-COMP-CTL-003" title="CORE-COMP-CTL-003">CORE-COMP-CTL-003</a></span>  <span class="needs needs_collapse" id="target__show__meta"><span class="needs collapsed"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-arrow-down-circle"><circle cx="12" cy="12" r="10"></circle><polyline points="8 12 12 16 16 12"></polyline><line x1="12" y1="8" x2="12" y2="16"></line></svg></span><span class="needs visible collapse_is_hidden"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-arrow-right-circle"><circle cx="12" cy="12" r="10"></circle><polyline points="12 16 16 12 12 8"></polyline><line x1="8" y1="12" x2="16" y2="12"></line></svg></span></span> </span></div>
+<div class="line"><span><span class="needs_type_name"><span class="needs_data">Component Requirement</span></span>: </span><strong><span><span class="needs_title"><span class="needs_data">Controller Command Protocol</span></span></span></strong><span> <span class="needs-id"><a class="reference internal" href="#CORE-COMP-CTL-003" title="CORE-COMP-CTL-003">CORE-COMP-CTL-003</a></span>  <span class="needs needs_collapse" id="target__show__meta"><span class="needs collapsed"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-arrow-down-circle"><circle cx="12" cy="12" r="10"></circle><polyline points="8 12 12 16 16 12"></polyline><line x1="12" y1="8" x2="12" y2="16"></line></svg></span><span class="needs visible collapse_is_hidden"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-arrow-right-circle"><circle cx="12" cy="12" r="10"></circle><polyline points="12 16 16 12 12 8"></polyline><line x1="8" y1="12" x2="16" y2="12"></line></svg></span></span> </span></div>
 </div>
 </td>
 </tr>
 <tr class="need meta row-even"><td class="need meta"><div class="needs_meta line-block">
-<div class="line"><span><span></span></span></div>
+<div class="line"><span><span><div class="line"><span class="needs_status"><span class="needs_label">status: </span><span class="needs_data">Must</span></span></div>
+</span></span></div>
 <div class="line"><span></span></div>
 </div>
 </td>
 </tr>
-<tr class="need content row-odd"><td class="need content" colspan="1"></td>
+<tr class="need content row-odd"><td class="need content" colspan="1"><p>Commands are an implementation of the Controller Command Protocol.</p></td>
 </tr>
 </tbody>
 </table>
@@ -141,6 +144,7 @@
 <li class="toctree-l2 current"><a class="reference internal" href="../index.html#id-policy">ID Policy</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="../../specifications/index.html">Specifications</a></li>
 </ul>
 
 <div class="relations">
@@ -150,7 +154,7 @@
   <li><a href="../index.html">Requirements</a><ul>
   <li><a href="index.html">Component Requirements</a><ul>
       <li>Previous: <a href="overview.html" title="previous chapter">Core Components Overview</a></li>
-      <li>Next: <a href="controller_command_protocol.html" title="next chapter">Controller Command Protocol</a></li>
+      <li>Next: <a href="data_model.html" title="next chapter">Data Model Component Requirements</a></li>
   </ul></li>
   </ul></li>
   </ul></li>

@@ -1,12 +1,21 @@
 Controller Component Requirements
 =================================
 
-.. comp:: Script execution shall run command files deterministically line-by-line.
+.. comp:: Script Execution
    :id: CORE-COMP-CTL-001
+   :status: Must
 
-.. comp:: Object constructors for ``new`` shall be managed via a central, extensible type registry.
+   ``execScript`` executes ``.pyp`` scripts deterministically line-by-line.
+
+.. comp:: Type Registry for ``new``
    :id: CORE-COMP-CTL-002
+   :status: Must
 
-.. comp:: The controller shall implement the Controller Command Protocol as normative interface behavior.
+   Constructors for element types are centrally registered and extensible.
+
+.. comp:: Controller Command Protocol
    :id: CORE-COMP-CTL-003
+   :status: Must
+
+   Commands are an implementation of the Controller Command Protocol.
 

@@ -1,15 +1,28 @@
 Data Model Component Requirements
 =================================
 
-.. comp:: The data model shall provide explicit node/connector modeling with defined input/output pins.
+.. comp:: Node/Connector Model with Pins
    :id: CORE-COMP-DATA-001
+   :status: Must
 
-.. comp:: Stable object addressing shall be supported consistently via body key, name, display name, and ID.
+   Elements provide defined inputs/outputs, and connections are modeled explicitly.
+
+.. comp:: Stable Object Addressing
    :id: CORE-COMP-DATA-002
+   :status: Must
 
-.. comp:: A central object/variable handler should be used as consolidated variable layer for mapping and recorder integration.
+   Access by body key, name, display name, and ID is consistently supported.
+
+.. comp:: ObjectHandler as Central Variable Layer
    :id: CORE-COMP-DATA-003
+   :status: Should
 
-.. comp:: Persistent objects shall be managed in a central database (SQLAlchemy + SQLite), while model instances are represented in tree form.
+   Variable instances are consolidated so mapping and recorder features rely on a central structure.
+
+.. comp:: Persistent Object Storage
    :id: CORE-COMP-DATA-004
+   :status: Must
+
+   Objects are stored in a central SQLAlchemy + SQLite database, while model instances are represented in a model tree.
+   A variable may appear multiple times in the model tree while still representing a single logical variable.
 
