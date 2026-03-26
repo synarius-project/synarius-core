@@ -73,6 +73,10 @@ Top-Level Command Set
      - Set attribute(s) on a target
      - ``set <target> <value>``
      - Attribute updated
+   * - ``get``
+     - Read attribute(s) from a target
+     - ``get <target>``
+     - Value output
    * - ``del``
      - Delete object(s)
      - ``del <ref...>``
@@ -151,11 +155,89 @@ Pin semantics:
 
 1. ``set <path>.<attr> <value>``
 2. ``set <attr> <value>`` (applies to current context)
+3. ``set @selection <attr> <value>`` (applies to each selected element)
 
 Examples::
 
    set @objects/variables/Speed.stim_const_val 10.0
    set LogLevel 1
+   set @selection gain 2.5
+
+``set`` Detailed Semantics
+--------------------------
+
+Target Resolution
+~~~~~~~~~~~~~~~~~
+
+- In ``set <path>.<attr> <value>``, the object is resolved from ``<path>`` and ``<attr>`` is updated on that object.
+- In ``set <attr> <value>``, the current context object is the target.
+- In ``set @selection <attr> <value>``, the update is applied to all selected objects.
+
+Value Parsing
+~~~~~~~~~~~~~
+
+- Scalar values support at least: string, integer, float, boolean.
+- Strings may be quoted and may contain spaces.
+- If collection literals are supported, they must be parsed safely (no ``eval``).
+
+Validation Rules
+~~~~~~~~~~~~~~~~
+
+- The target object must exist and be uniquely resolved.
+- The attribute must exist or be creatable according to the object type policy.
+- Attribute write access must be validated (for example via writable/virtual rules).
+- For virtual attributes, setter callbacks are used where defined.
+
+Error Behavior
+~~~~~~~~~~~~~~
+
+- If the target cannot be resolved, the command fails with a clear error.
+- If the attribute is not writable or value conversion fails, the command fails with a clear error.
+- In script execution, default behavior is fail-fast (stop on first error).
+
+``get`` Forms
+-------------
+
+1. ``get <path>.<attr>``
+2. ``get <attr>`` (reads from current context)
+3. ``get @selection <attr>`` (reads from each selected element)
+
+Examples::
+
+   get @objects/variables/Speed.value
+   get LogLevel
+   get @selection Name
+
+``get`` Detailed Semantics
+--------------------------
+
+Target Resolution
+~~~~~~~~~~~~~~~~~
+
+- In ``get <path>.<attr>``, the object is resolved from ``<path>`` and ``<attr>`` is read from that object.
+- In ``get <attr>``, the current context object is used as the target.
+- In ``get @selection <attr>``, values are read from each selected object.
+
+Read Semantics
+~~~~~~~~~~~~~~
+
+- For regular attributes, the stored value is returned.
+- For virtual attributes, getter callbacks are used.
+- Multi-target reads (selection) return deterministic output ordering based on selection order.
+
+Output Semantics
+~~~~~~~~~~~~~~~~
+
+- Single-target reads return one value line.
+- Multi-target reads return one line per resolved object in deterministic order.
+- Missing values should be represented explicitly (for example ``<none>``), not silently skipped.
+
+Error Behavior
+~~~~~~~~~~~~~~
+
+- If the target cannot be resolved, the command fails with a clear error.
+- If the attribute is unknown or not readable, the command fails with a clear error.
+- In script execution, default behavior is fail-fast (stop on first error).
 
 ``select`` and ``del``
 ----------------------
@@ -213,6 +295,10 @@ A) Command Summary
      - Mutation
      - Path / selection / context
      - Configure objects and runtime
+   * - ``get``
+     - Inspection
+     - Path / selection / context
+     - Read object state and runtime values
    * - ``del``
      - Mutation
      - Refs

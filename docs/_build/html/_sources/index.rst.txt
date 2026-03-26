@@ -6,4 +6,5 @@ synarius-core Documentation
 
    requirements/index
    specifications/index
+   concepts/index
 

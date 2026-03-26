@@ -1,0 +1,81 @@
+@startuml
+skinparam classAttributeIconSize 0
+
+abstract class BaseObject {
+  +id: UUID
+  +name: String
+  +parent: ComplexInstance [0..1]
+  +attributes: Map<String, Any>
+  +created_at: DateTime
+  +updated_at: DateTime
+  --
+  +get(key: String): Any
+  +set(key: String, value: Any): void
+  +path(): String
+}
+
+abstract class LocatableInstance {
+  +position: Point2D
+  +rotation_deg: float
+  +size: Size2D
+  --
+  +move_to(x: float, y: float): void
+}
+
+class ElementaryInstance {
+  +type_key: String
+  +in_pins: List<Pin>
+  +out_pins: List<Pin>
+}
+
+class ComplexInstance {
+  +children: List<BaseObject>
+  --
+  +paste(obj: BaseObject): void
+  +del(id: UUID): void
+  +find_by_id(id: UUID): BaseObject
+}
+
+class Connector {
+  +source_instance_id: UUID
+  +source_pin: String
+  +target_instance_id: UUID
+  +target_pin: String
+  +directed: bool
+  --
+  +validate_endpoints(): bool
+}
+
+class Pin {
+  +name: String
+  +direction: PinDirection
+  +data_type: String
+}
+
+class Point2D {
+  +x: float
+  +y: float
+}
+
+class Size2D {
+  +width: float
+  +height: float
+}
+
+enum PinDirection {
+  IN
+  OUT
+}
+
+BaseObject <|-- LocatableInstance
+LocatableInstance <|-- ElementaryInstance
+LocatableInstance <|-- ComplexInstance
+BaseObject <|-- Connector
+
+ComplexInstance "1" *-- "0..*" BaseObject : contains
+ElementaryInstance "1" *-- "0..*" Pin : in_pins/out_pins
+
+Connector --> ElementaryInstance : source
+Connector --> ElementaryInstance : target
+@enduml
+
