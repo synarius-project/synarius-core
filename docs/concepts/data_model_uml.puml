@@ -26,13 +26,13 @@ abstract class LocatableInstance {
   --
   +x: float <<virtual, writable>>
   +y: float <<virtual, writable>>
-  +set_xy(pos: Point2D | Tuple<float, float>): void
+  +set_xy(pos: Point2DOrTuple): void
 }
 
 class ElementaryInstance {
   +type_key: String
-  +in_pins: List<Pin>
-  +out_pins: List<Pin>
+  +in_pins: PinList
+  +out_pins: PinList
 }
 
 class Variable {
@@ -45,12 +45,12 @@ class BasicOperator {
 }
 
 class ComplexInstance {
-  +children: List<BaseObject>
-  +children_by_hash_name: Dict<String, BaseObject>
+  +children: BaseObjectList
+  +children_by_hash_name: HashNameMap
   --
   +paste(obj: BaseObject): void
   +del(id: UUID): void
-  +get_child(ref: UUID | String): BaseObject [0..1]
+  +get_child(ref: String): BaseObject [0..1]
 }
 
 class Connector {
@@ -114,11 +114,10 @@ ElementaryInstance <|-- Variable
 ElementaryInstance <|-- BasicOperator
 BaseObject <|-- Connector
 
-ComplexInstance "1" *-- "0..*" BaseObject : contains
-ElementaryInstance "1" *-- "0..*" Pin : pins
-BaseObject "1" *-- "1" AttributeDict : owns
+ComplexInstance *-- BaseObject
+ElementaryInstance *-- Pin
+BaseObject *-- AttributeDict
 
-Connector --> ElementaryInstance : source
-Connector --> ElementaryInstance : target
+Connector --> ElementaryInstance
 @enduml
 
