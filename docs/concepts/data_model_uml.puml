@@ -2,7 +2,7 @@
 skinparam classAttributeIconSize 0
 
 abstract class BaseObject {
-  +parent: ComplexInstance [0..1]
+  +parent: ComplexInstance
   +_id: UUID
   +_name: String <<transient>>
   +_hash_name: String
@@ -37,7 +37,7 @@ class ElementaryInstance {
 
 class Variable {
   +value: Any
-  +unit: String [0..1]
+  +unit: String
 }
 
 class BasicOperator {
@@ -50,7 +50,7 @@ class ComplexInstance {
   --
   +paste(obj: BaseObject): void
   +del(id: UUID): void
-  +get_child(ref: String): BaseObject [0..1]
+  +get_child(ref: String): BaseObject
 }
 
 class Connector {
@@ -101,7 +101,7 @@ end note
 class AttributeDict {
   +get(key: String): Any
   +set(key: String, value: Any): void
-  +set_virtual(key: String, getter: Callable, setter: Callable [0..1]): void
+  +set_virtual(key: String, getter: Callable, setter: Callable): void
   +virtual(key: String): bool
   +exposed(key: String): bool
   +writable(key: String): bool
@@ -117,7 +117,7 @@ BaseObject <|-- Connector
 ComplexInstance *-- BaseObject
 ElementaryInstance *-- Pin
 BaseObject *-- AttributeDict
-
 Connector --> ElementaryInstance
+
 @enduml
 
