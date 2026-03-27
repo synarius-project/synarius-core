@@ -9,6 +9,42 @@ UML Diagram
 The requirements on this page are intended as a supplement to the UML diagram above.
 The software architecture of the data model must conform to this UML diagram.
 
+.. comp:: Model aggregate with explicit infrastructure boundary
+   :id: CORE-COMP-MODEL-012
+   :status: Must
+
+   The data model shall provide a top-level model/document aggregate that owns the root object and a shared model context.
+   The model context shall host infrastructure services such as ID management, while domain objects remain focused on domain behavior.
+
+.. comp:: Attached and detached object lifecycle
+   :id: CORE-COMP-MODEL-013
+   :status: Must
+
+   Model objects may exist detached from a model context and become attached when inserted into a model.
+   Attached objects shall have a model-registered ID; detached objects shall not be treated as persistent model members.
+
+.. comp:: Central ID factory and registry operations
+   :id: CORE-COMP-MODEL-014
+   :status: Must
+
+   A central ID factory shall provide ``new_id``, ``reserve``, ``contains``, and ``unregister`` operations.
+   ID reservation shall reject duplicates within one model context.
+
+.. comp:: ID lifecycle for load, delete, and paste/import
+   :id: CORE-COMP-MODEL-015
+   :status: Must
+
+   Loading an existing model shall reserve all existing IDs and fail on duplicates.
+   Deleting objects shall unregister IDs for the full removed subtree.
+   Pasting within the same model shall remap IDs by default.
+
+.. comp:: Tree-first navigation for CLI
+   :id: CORE-COMP-MODEL-016
+   :status: Must
+
+   The data model shall support tree-oriented navigation semantics for CLI usage.
+   Model objects shall provide ``get_root`` and ``get_root_model`` to resolve tree and model context ownership.
+
 .. comp:: Node/Connector Model with Pins
    :id: CORE-COMP-MODEL-001
    :status: Must

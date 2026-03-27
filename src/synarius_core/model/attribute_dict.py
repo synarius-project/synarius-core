@@ -56,3 +56,30 @@ class AttributeDict(dict[str, AttributeEntry]):
     def virtual(self, key: str) -> bool:
         return super().__getitem__(key)[self._Field.GETTER] is not None
 
+    def set_value(self, key: str, value: Any) -> None:
+        """Set an attribute value respecting virtual setters and writability.
+
+        - If a virtual setter is available, it is invoked.
+        - For non-virtual entries, the stored value is updated while preserving metadata.
+        - Raises KeyError for unknown keys.
+        - Raises PermissionError if the entry is not writable.
+        """
+        entry = super().__getitem__(key)
+        if not entry[self._Field.WRITABLE]:
+            raise PermissionError(f"Attribute '{key}' is not writable.")
+
+        setter = entry[self._Field.SETTER]
+        if setter is not None:
+            setter(value)
+            return
+
+        # Non-virtual: update the stored value without losing metadata.
+        new_entry: AttributeEntry = (
+            value,
+            entry[self._Field.SETTER],
+            entry[self._Field.GETTER],
+            entry[self._Field.EXPOSED],
+            entry[self._Field.WRITABLE],
+        )
+        super().__setitem__(key, new_entry)
+

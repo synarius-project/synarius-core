@@ -81,6 +81,10 @@ Top-Level Command Set
      - Delete object(s)
      - ``del <ref...>``
      - Object(s) removed
+   * - ``load``
+     - Load a model from a command stack/script
+     - ``load "<scriptPath>" [into=<path>] [idPolicy=remap|keep]``
+     - Model elements created/updated
 
 Object Referencing
 ------------------
@@ -245,6 +249,33 @@ Error Behavior
 - ``select <ref1> <ref2> ...`` replaces current selection in specified order.
 - ``del <ref1> <ref2> ...`` deletes referenced objects and deterministically updates dependent structures (selection/connectors).
 
+``load`` Command
+----------------
+
+The ``load`` command applies a command stack to materialize a model (or submodel) according to this protocol.
+
+Canonical form::
+
+   load "<scriptPath>" [into=<path>] [idPolicy=remap|keep]
+
+Semantics
+~~~~~~~~~
+
+- ``<scriptPath>`` points to a UTF-8 script containing one protocol command per line.
+- ``into=<path>`` optionally selects the insertion root. If omitted, the active context is used.
+- ``idPolicy=remap`` (default) remaps loaded IDs to fresh model-local IDs.
+- ``idPolicy=keep`` keeps IDs from the loaded command stack and must fail on duplicates.
+- Loading must be deterministic and follow top-to-bottom command order.
+- Loading should be transactional at command-stack level: on failure, no partial model state should remain by default.
+
+Error Behavior
+~~~~~~~~~~~~~~
+
+- Missing/unreadable script path causes command failure with a clear error.
+- Protocol parsing errors in the loaded command stack cause command failure with line reference.
+- Duplicate IDs under ``idPolicy=keep`` cause command failure.
+- In transactional mode, failures must roll back all changes created by ``load``.
+
 Script Execution
 ----------------
 
@@ -254,6 +285,7 @@ A script is UTF-8 plain text with one command per line.
 - Optional: reset ID counters at script start (configurable).
 - Default failure behavior: stop on first error and surface it.
 - Optional mode: continue-on-error with full failure log.
+- ``load`` reuses the same line-oriented protocol semantics and may be used as a higher-level entry point for model reconstruction.
 
 Safety Requirements
 -------------------
@@ -303,6 +335,10 @@ A) Command Summary
      - Mutation
      - Refs
      - Remove nodes/edges
+   * - ``load``
+     - Reconstruction
+     - Script path (+ optional target path)
+     - Rebuild model/submodel from protocol command stack
 
 B) Construction Type Summary
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
