@@ -1,4 +1,4 @@
-@startuml
+@startuml DataModel
 skinparam classAttributeIconSize 0
 
 abstract class BaseObject {
