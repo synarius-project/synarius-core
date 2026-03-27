@@ -115,7 +115,7 @@ ElementaryInstance <|-- BasicOperator
 BaseObject <|-- Connector
 
 ComplexInstance "1" *-- "0..*" BaseObject : contains
-ElementaryInstance "1" *-- "0..*" Pin : in_pins/out_pins
+ElementaryInstance "1" *-- "0..*" Pin : pins
 BaseObject "1" *-- "1" AttributeDict : owns
 
 Connector --> ElementaryInstance : source
