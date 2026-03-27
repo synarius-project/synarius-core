@@ -85,11 +85,18 @@ enum PinDirection {
 }
 
 enum BasicOperatorType {
-  "+"
-  "-"
-  "*"
-  "/"
+  PLUS
+  MINUS
+  MULTIPLY
+  DIVIDE
 }
+
+note right of BasicOperatorType
+  PLUS      = "+"
+  MINUS     = "-"
+  MULTIPLY  = "*"
+  DIVIDE    = "/"
+end note
 
 class AttributeDict {
   +get(key: String): Any
