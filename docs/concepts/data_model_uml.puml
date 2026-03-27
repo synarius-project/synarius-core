@@ -4,24 +4,29 @@ skinparam classAttributeIconSize 0
 abstract class BaseObject {
   +parent: ComplexInstance [0..1]
   +_id: UUID
-  +_name: String
+  +_name: String <<transient>>
+  +_hash_name: String
   +attribute_dict: AttributeDict
-  +created_at: DateTime
-  +updated_at: DateTime
   --
-  +id: String <<virtual, persistent>>
-  +name: String <<virtual, persistent>>
+  +id: UUID <<virtual, persistent, readonly>>
+  +name: String <<virtual, writable>>
+  +hash_name: String <<virtual, persistent, readonly>>
+  +created_at: DateTime <<virtual, readonly>>
+  +updated_at: DateTime <<virtual, readonly>>
+  +path: String <<virtual, readonly>>
+  +set_name(name: String): void
+  +_refresh_hash_name(): void
   +get(key: String): Any
   +set(key: String, value: Any): void
-  +path(): String
 }
 
 abstract class LocatableInstance {
   +position: Point2D
-  +rotation_deg: float
   +size: Size2D
   --
-  +move_to(x: float, y: float): void
+  +x: float <<virtual, writable>>
+  +y: float <<virtual, writable>>
+  +set_xy(pos: Point2D | Tuple<float, float>): void
 }
 
 class ElementaryInstance {
@@ -30,12 +35,22 @@ class ElementaryInstance {
   +out_pins: List<Pin>
 }
 
+class Variable {
+  +value: Any
+  +unit: String [0..1]
+}
+
+class BasicOperator {
+  +operation: BasicOperatorType
+}
+
 class ComplexInstance {
   +children: List<BaseObject>
+  +children_by_hash_name: Dict<String, BaseObject>
   --
   +paste(obj: BaseObject): void
   +del(id: UUID): void
-  +find_by_id(id: UUID): BaseObject
+  +get_child(ref: UUID | String): BaseObject [0..1]
 }
 
 class Connector {
@@ -69,6 +84,13 @@ enum PinDirection {
   OUT
 }
 
+enum BasicOperatorType {
+  "+"
+  "-"
+  "*"
+  "/"
+}
+
 class AttributeDict {
   +get(key: String): Any
   +set(key: String, value: Any): void
@@ -81,6 +103,8 @@ class AttributeDict {
 BaseObject <|-- LocatableInstance
 LocatableInstance <|-- ElementaryInstance
 LocatableInstance <|-- ComplexInstance
+ElementaryInstance <|-- Variable
+ElementaryInstance <|-- BasicOperator
 BaseObject <|-- Connector
 
 ComplexInstance "1" *-- "0..*" BaseObject : contains

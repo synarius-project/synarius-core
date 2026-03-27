@@ -1,5 +1,5 @@
 project = "synarius-core"
-extensions = ["sphinx_needs"]
+extensions = ["sphinx_needs", "sphinxcontrib.plantuml"]
 
 needs_types = [
     {"directive": "need", "title": "Requirement", "prefix": "NEED_", "color": "#E8DAEF", "style": "node"},
