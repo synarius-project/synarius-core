@@ -19,3 +19,10 @@ Controller Component Requirements
 
    Commands are an implementation of the Controller Command Protocol.
 
+.. comp:: ``load`` command support
+   :id: CORE-COMP-CTL-004
+   :status: Must
+
+   The controller shall implement a ``load`` command that reconstructs models from protocol-compliant command stacks.
+   The command shall support deterministic execution, configurable ID policy (``remap``/``keep``), and transactional rollback on failure.
+

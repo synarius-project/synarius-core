@@ -165,6 +165,18 @@ class BaseObject:
             writable=False,
         )
         self.attribute_dict.set_virtual(
+            "id_short",
+            getter=self._compute_id_short,
+            setter=None,
+            writable=False,
+        )
+        self.attribute_dict.set_virtual(
+            "prompt_path",
+            getter=self._compute_prompt_path,
+            setter=None,
+            writable=False,
+        )
+        self.attribute_dict.set_virtual(
             "created_at",
             getter=lambda: dict.__getitem__(self.attribute_dict, "created_at")[0],
             setter=None,
@@ -182,6 +194,20 @@ class BaseObject:
             return self._hash_name
         return f"{self.parent.path}/{self._hash_name}"
 
+    def _compute_id_short(self) -> str:
+        if self._id is None:
+            return ""
+        model = self.get_root_model()
+        if model is None:
+            return self._id.hex[:8]
+        return model.short_id(self._id, min_len=1)
+
+    def _compute_prompt_path(self) -> str:
+        if self.parent is None:
+            return f"{self._name}@{self._compute_id_short()}"
+        parent_path = self.parent.get("prompt_path")
+        return f"{parent_path}/{self._name}@{self._compute_id_short()}"
+
     @property
     def path(self) -> str:
         return self._compute_path()
@@ -197,9 +223,9 @@ class BaseObject:
         self._touch()
 
     def _refresh_hash_name(self) -> None:
-        # Always keep @id<id> suffix stable.
+        # Always keep @<id> suffix stable.
         id_suffix = str(self._id) if self._id is not None else "<detached>"
-        self._hash_name = f"{self._name}@id{id_suffix}"
+        self._hash_name = f"{self._name}@{id_suffix}"
 
     def _touch(self) -> None:
         # Stored/managed in AttributeDict only.
@@ -469,16 +495,52 @@ class Model:
         self.context.model = self
         self.root = root
         self.attach(root, parent=None, reserve_existing=load_existing_ids, remap_ids=not load_existing_ids)
+        self._ensure_main_output_color()
 
     @classmethod
     def new(cls, root_name: str = "root") -> Model:
         return cls(ComplexInstance(name=root_name), load_existing_ids=False)
+
+    def _ensure_main_output_color(self) -> None:
+        # CLI output color configured on the root object ("main"), HTML-style hex code.
+        if self.root.name != "main":
+            return
+        if "output_color" in self.root.attribute_dict:
+            return
+        dict.__setitem__(
+            self.root.attribute_dict,
+            "output_color",
+            ("#ADD8E6", None, None, True, True),  # default: light blue
+        )
 
     def get_root(self) -> ComplexInstance:
         return self.root
 
     def get_root_model(self) -> Model:
         return self
+
+    def find_by_id(self, obj_id: UUID) -> BaseObject | None:
+        for node in _iter_subtree(self.root):
+            if node.id == obj_id:
+                return node
+        return None
+
+    def short_id(self, obj_id: UUID, *, min_len: int = 1) -> str:
+        """Return the shortest unique hex prefix for obj_id within this model."""
+        hex_id = obj_id.hex
+        all_hex = [node.id.hex for node in _iter_subtree(self.root) if node.id is not None]
+        for length in range(max(1, min_len), len(hex_id) + 1):
+            prefix = hex_id[:length]
+            if sum(1 for h in all_hex if h.startswith(prefix)) == 1:
+                return prefix
+        return hex_id
+
+    def clone(self) -> Model:
+        """Create a detached clone of this model keeping existing IDs."""
+        root_clone = _clone_for_paste(self.root, keep_ids=True)
+        if not isinstance(root_clone, ComplexInstance):
+            raise TypeError("Model root clone must be a ComplexInstance.")
+        return Model(root_clone, load_existing_ids=True)
 
     def attach(
         self,

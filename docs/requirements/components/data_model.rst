@@ -75,7 +75,7 @@ The software architecture of the data model must conform to this UML diagram.
    :status: Must
 
    The ``BaseObject`` shall persist ``id`` and ``hash_name``.
-   ``hash_name`` shall be generated as ``<name>@id<id>`` and updated when ``name`` changes while preserving the ``@id<id>`` suffix.
+   ``hash_name`` shall be generated as ``<name>@<id>`` and updated when ``name`` changes while preserving the ``@<id>`` suffix.
 
 .. comp:: Virtual attributes exposure and write rules
    :id: CORE-COMP-MODEL-006

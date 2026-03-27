@@ -39,6 +39,11 @@ class IdFactoryTest(unittest.TestCase):
 
 
 class ModelLifecycleTest(unittest.TestCase):
+    def test_main_has_default_output_color_attribute(self) -> None:
+        model = Model.new("main")
+        self.assertEqual(model.root.get("output_color"), "#ADD8E6")
+        self.assertTrue(model.root.attribute_dict.writable("output_color"))
+
     def test_pin_uses_enum_data_type(self) -> None:
         pin = Pin(name="in", direction=PinDirection.IN, data_type=PinDataType.FLOAT)
         self.assertEqual(pin.data_type, PinDataType.FLOAT)

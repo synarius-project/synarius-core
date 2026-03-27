@@ -6,7 +6,7 @@ import unittest
 # Make `src/` importable when running tests via `python -m unittest`.
 sys.path.append(str(Path(__file__).resolve().parents[1] / "src"))
 
-from synarius_core.model import AttributeDict
+from synarius_core.model import AttributeDict  # pyright: ignore[reportMissingImports]
 
 
 class AttributeDictTest(unittest.TestCase):

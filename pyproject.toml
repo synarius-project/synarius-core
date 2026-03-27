@@ -18,6 +18,9 @@ classifiers = [
 [project.urls]
 Homepage = "https://github.com/synarius-project"
 
+[project.scripts]
+synarius-core-cli = "synarius_core.cli.minimal_cli:main"
+
 [tool.setuptools]
 package-dir = {"" = "src"}
 

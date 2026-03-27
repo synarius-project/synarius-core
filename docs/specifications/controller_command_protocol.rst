@@ -258,6 +258,29 @@ Canonical form::
 
    load "<scriptPath>" [into=<path>] [idPolicy=remap|keep]
 
+Formal Parameters
+~~~~~~~~~~~~~~~~~
+
+.. list-table::
+   :header-rows: 1
+
+   * - Parameter
+     - Type
+     - Default
+     - Meaning
+   * - ``scriptPath``
+     - string (path)
+     - *(required)*
+     - Path to the command-stack script file
+   * - ``into``
+     - path
+     - current context
+     - Target root where loaded objects are materialized
+   * - ``idPolicy``
+     - enum: ``remap`` | ``keep``
+     - ``remap``
+     - ID handling strategy for loaded objects
+
 Semantics
 ~~~~~~~~~
 
@@ -267,6 +290,28 @@ Semantics
 - ``idPolicy=keep`` keeps IDs from the loaded command stack and must fail on duplicates.
 - Loading must be deterministic and follow top-to-bottom command order.
 - Loading should be transactional at command-stack level: on failure, no partial model state should remain by default.
+
+Execution Phases
+~~~~~~~~~~~~~~~~
+
+1. Parse and validate parameters.
+2. Resolve target root (``into`` or current context).
+3. Read and parse command-stack script.
+4. Execute commands in order against an isolated transactional context.
+5. Commit model changes atomically if all commands succeed.
+6. On failure, roll back all changes produced by the ``load`` command.
+
+Return Semantics
+~~~~~~~~~~~~~~~~
+
+- On success, ``load`` returns a deterministic summary containing at least:
+  - number of executed commands,
+  - number of created/updated/deleted objects,
+  - applied ID policy.
+- On failure, ``load`` returns a structured error with:
+  - failing command line number,
+  - failing command text (or normalized form),
+  - error category and message.
 
 Error Behavior
 ~~~~~~~~~~~~~~
