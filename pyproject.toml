@@ -30,7 +30,6 @@ dev = []
 docs = [
   "sphinx",
   "sphinx-needs",
-  "sphinxcontrib-plantuml",
   "zerovm-sphinx-theme",
 ]
 
