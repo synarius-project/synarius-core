@@ -2,13 +2,15 @@
 skinparam classAttributeIconSize 0
 
 abstract class BaseObject {
-  +id: UUID
-  +name: String
   +parent: ComplexInstance [0..1]
-  +attributes: Map<String, Any>
+  +_id: UUID
+  +_name: String
+  +attribute_dict: AttributeDict
   +created_at: DateTime
   +updated_at: DateTime
   --
+  +id: String <<virtual, persistent>>
+  +name: String <<virtual, persistent>>
   +get(key: String): Any
   +set(key: String, value: Any): void
   +path(): String
@@ -67,6 +69,15 @@ enum PinDirection {
   OUT
 }
 
+class AttributeDict {
+  +get(key: String): Any
+  +set(key: String, value: Any): void
+  +set_virtual(key: String, getter: Callable, setter: Callable [0..1]): void
+  +virtual(key: String): bool
+  +exposed(key: String): bool
+  +writable(key: String): bool
+}
+
 BaseObject <|-- LocatableInstance
 LocatableInstance <|-- ElementaryInstance
 LocatableInstance <|-- ComplexInstance
@@ -74,6 +85,7 @@ BaseObject <|-- Connector
 
 ComplexInstance "1" *-- "0..*" BaseObject : contains
 ElementaryInstance "1" *-- "0..*" Pin : in_pins/out_pins
+BaseObject "1" *-- "1" AttributeDict : owns
 
 Connector --> ElementaryInstance : source
 Connector --> ElementaryInstance : target

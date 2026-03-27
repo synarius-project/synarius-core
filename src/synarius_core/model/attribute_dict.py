@@ -1,0 +1,58 @@
+from __future__ import annotations
+
+from collections.abc import Callable
+from enum import IntEnum
+from typing import Any
+
+SetterFunction = Callable[[Any], None]
+GetterFunction = Callable[[], Any]
+AttributeEntry = tuple[Any, SetterFunction | None, GetterFunction | None, bool, bool]
+
+
+class AttributeDict(dict[str, AttributeEntry]):
+    """Dictionary for model attributes with protocol-related metadata.
+
+    Tuple layout per key:
+    (value, setter_function, getter_function, exposed, writable)
+    """
+
+    class _Field(IntEnum):
+        VALUE = 0
+        SETTER = 1
+        GETTER = 2
+        EXPOSED = 3
+        WRITABLE = 4
+
+    def __setitem__(self, key: str, value: Any) -> None:
+        entry: AttributeEntry = (value, None, None, True, False)
+        super().__setitem__(key, entry)
+
+    def set_virtual(
+        self,
+        key: str,
+        getter: GetterFunction,
+        setter: SetterFunction | None = None,
+        *,
+        exposed: bool = True,
+        writable: bool = False,
+    ) -> None:
+        """Set a virtual attribute entry with getter/setter metadata."""
+        entry: AttributeEntry = (None, setter, getter, exposed, writable)
+        super().__setitem__(key, entry)
+
+    def __getitem__(self, key: str) -> Any:
+        entry = super().__getitem__(key)
+        getter = entry[self._Field.GETTER]
+        if getter is not None:
+            return getter()
+        return entry[self._Field.VALUE]
+
+    def exposed(self, key: str) -> bool:
+        return super().__getitem__(key)[self._Field.EXPOSED]
+
+    def writable(self, key: str) -> bool:
+        return super().__getitem__(key)[self._Field.WRITABLE]
+
+    def virtual(self, key: str) -> bool:
+        return super().__getitem__(key)[self._Field.GETTER] is not None
+
