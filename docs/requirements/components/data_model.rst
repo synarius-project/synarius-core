@@ -4,9 +4,7 @@ Data Model Component Requirements
 UML Diagram
 -----------
 
-.. image:: /_static/DataModel.svg
-   :alt: Data model UML diagram
-   :width: 100%
+.. uml:: data_model_uml.puml
 
 The requirements on this page are intended as a supplement to the UML diagram above.
 The software architecture of the data model must conform to this UML diagram.

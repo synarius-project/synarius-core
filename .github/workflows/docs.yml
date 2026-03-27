@@ -14,12 +14,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+      - run: sudo apt-get update && sudo apt-get install -y default-jre-headless graphviz
+      - run: curl -fsSL -o /tmp/plantuml.jar https://github.com/plantuml/plantuml/releases/latest/download/plantuml.jar
       - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
       - run: pip install -e .
-      - run: pip install sphinx sphinx-needs zerovm-sphinx-theme
+      - run: pip install sphinx sphinx-needs sphinxcontrib-plantuml zerovm-sphinx-theme
       - run: sphinx-build -b html docs docs/_build/html
+        env:
+          PLANTUML: "java -Djava.awt.headless=true -jar /tmp/plantuml.jar"
       - uses: actions/upload-pages-artifact@v4
         with:
           path: docs/_build/html

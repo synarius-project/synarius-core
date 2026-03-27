@@ -120,4 +120,3 @@ BaseObject *-- AttributeDict
 Connector --> ElementaryInstance
 
 @enduml
-

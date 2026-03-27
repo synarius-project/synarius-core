@@ -1,9 +1,12 @@
+import os
 import zerovm_sphinx_theme
 
 project = "synarius-core"
-extensions = ["sphinx_needs"]
+extensions = ["sphinx_needs", "sphinxcontrib.plantuml"]
 html_theme = "zerovm"
 html_theme_path = [zerovm_sphinx_theme.theme_path]
+plantuml = os.environ.get("PLANTUML", "plantuml")
+plantuml_output_format = "svg_img"
 
 needs_types = [
     {"directive": "need", "title": "Requirement", "prefix": "NEED_", "color": "#E8DAEF", "style": "node"},
