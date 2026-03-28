@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID
 
+from synarius_core.library import LibraryCatalog
 from synarius_core.model import (
     BaseObject,
     BasicOperator,
@@ -26,16 +27,23 @@ class CommandError(ValueError):
 class MinimalController:
     """Minimal text-command controller implementing core protocol commands."""
 
-    def __init__(self, model: Model | None = None) -> None:
+    def __init__(
+        self,
+        model: Model | None = None,
+        *,
+        library_catalog: LibraryCatalog | None = None,
+    ) -> None:
         self.model = model or Model.new("main")
-        self.current: BaseObject = self.model.root
+        self.library_catalog = library_catalog if library_catalog is not None else LibraryCatalog.load_default()
+        self.current: Any = self.model.root
         self.selection: list[Any] = []
-        self.alias_roots: dict[str, ComplexInstance] = {
+        self.alias_roots: dict[str, Any] = {
             "@main": self.model.root,
             "@objects": self.model.root,
             "@controller": self.model.root,
             "@latent": self.model.root,
             "@signals": self.model.root,
+            "@libraries": self.library_catalog.root,
         }
 
     # ------------------------- Public API ------------------------------------
@@ -91,8 +99,11 @@ class MinimalController:
     # ------------------------ Command handlers --------------------------------
 
     def _cmd_ls(self) -> str:
+        children = getattr(self.current, "children", None)
+        if not children:
+            return ""
         lines: list[str] = []
-        for child in self.current.children:
+        for child in children:
             lines.append(str(self._get_attr(child, "name")))
         return "\n".join(lines)
 
@@ -170,6 +181,9 @@ class MinimalController:
         kwargs = self._parse_kw_pairs(rest)
         positional = [t for t in rest if "=" not in t]
 
+        if not isinstance(self.current, ComplexInstance):
+            raise CommandError("new requires a model container as cwd (e.g. cd @main first; not under @libraries).")
+
         if type_name == "Variable":
             if not positional:
                 raise CommandError("new Variable requires <name>.")
@@ -230,6 +244,14 @@ class MinimalController:
                 raise CommandError("new Connector requires <fromRef> <toRef>.")
             src = self._resolve_ref(positional[0])
             dst = self._resolve_ref(positional[1])
+            ob_raw = kwargs.get("orthogonal_bends")
+            ob_list: list[float] | None = None
+            if ob_raw is not None and str(ob_raw).strip() != "":
+                parts = [p.strip() for p in str(ob_raw).replace(";", ",").split(",") if p.strip()]
+                try:
+                    ob_list = [float(p) for p in parts]
+                except ValueError as exc:
+                    raise CommandError(f"orthogonal_bends must be comma-separated numbers: {exc}") from exc
             obj = Connector(
                 name=kwargs.get("name", "connector"),
                 source_instance_id=src.id,  # type: ignore[arg-type]
@@ -237,6 +259,7 @@ class MinimalController:
                 target_instance_id=dst.id,  # type: ignore[arg-type]
                 target_pin=kwargs.get("target_pin", "in"),
                 directed=self._parse_bool(kwargs.get("directed", "true")),
+                orthogonal_bends=ob_list,
             )
         else:
             raise CommandError(f"Unsupported new type '{type_name}'.")
@@ -442,7 +465,7 @@ class MinimalController:
 
         # Transactional semantics: execute on clone, commit on success.
         temp_model = self.model.clone()
-        temp_controller = MinimalController(temp_model)
+        temp_controller = MinimalController(temp_model, library_catalog=self.library_catalog)
         if cwd_id is not None:
             cloned_cwd = temp_model.find_by_id(cwd_id)
             if isinstance(cloned_cwd, ComplexInstance):
@@ -525,17 +548,23 @@ class MinimalController:
             raise CommandError(f"Could not resolve reference '{ref}'.")
         return obj
 
-    def _resolve_child(self, container: ComplexInstance, segment: str) -> Any | None:
-        # 1) native model lookup by hash_name / UUID
-        direct = container.get_child(segment)
-        if direct is not None:
-            return direct
-        # 2) fallback by transient user name
-        by_name = [child for child in container.children if child.name == segment]
-        if len(by_name) == 1:
-            return by_name[0]
-        if len(by_name) > 1:
-            raise CommandError(f"Reference '{segment}' is ambiguous by name.")
+    def _resolve_child(self, container: Any, segment: str) -> Any | None:
+        if isinstance(container, ComplexInstance):
+            direct = container.get_child(segment)
+            if direct is not None:
+                return direct
+            by_name = [child for child in container.children if child.name == segment]
+            if len(by_name) == 1:
+                return by_name[0]
+            if len(by_name) > 1:
+                raise CommandError(f"Reference '{segment}' is ambiguous by name.")
+            return None
+
+        nav_get = getattr(container, "get_child", None)
+        if callable(nav_get):
+            hit = nav_get(segment)
+            if hit is not None:
+                return hit
         return None
 
     def _resolve_path(self, path: str) -> Any:
@@ -567,7 +596,7 @@ class MinimalController:
             if segment == "..":
                 node = node.parent if getattr(node, "parent", None) is not None else node
                 continue
-            if not isinstance(node, ComplexInstance):
+            if not (isinstance(node, ComplexInstance) or callable(getattr(node, "get_child", None))):
                 raise CommandError(f"Path segment '{segment}' cannot be resolved from non-container.")
             child = self._resolve_child(node, segment)
             if child is None:

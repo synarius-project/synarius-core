@@ -1,6 +1,7 @@
 """Core data model classes for synarius-core."""
 
 from .attribute_dict import AttributeDict
+from .element_type import ModelElementType
 from .data_model import (
     BaseObject,
     BasicOperator,
@@ -24,6 +25,7 @@ from .data_model import (
 
 __all__ = [
     "AttributeDict",
+    "ModelElementType",
     "BaseObject",
     "LocatableInstance",
     "ElementaryInstance",

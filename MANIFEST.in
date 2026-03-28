@@ -1,0 +1,2 @@
+# Ship bundled FMF libraries with sdist (wheel copies via setup.py build_py hook).
+graft Lib

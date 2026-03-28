@@ -110,6 +110,16 @@ config.local.*
 settings.local.*
 
 # =========================================================
+# Sphinx — local / CI test HTML output (not committed)
+# =========================================================
+docs/_sphinx_test_build/
+docs/_sphinx_test_build.zip
+docs/_build/
+
+# Local site-packages layout (Windows / tooling)
+Lib/
+
+# =========================================================
 # Secrets
 # =========================================================
 .env

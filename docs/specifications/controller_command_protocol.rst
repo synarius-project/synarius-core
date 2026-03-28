@@ -7,6 +7,12 @@ Scope
 This specification defines the text-based command interface used to communicate with the Synarius Core controller.
 Commands are line-oriented and can run interactively (console) or in batch mode (script execution).
 
+Command log and model fidelity
+------------------------------
+
+When command lines are logged, that log must be sufficient to reconstruct exactly the model the user built.
+Therefore, the domain model must not be changed except by executing those string commands through the controller implementing this protocol—no persistent mutations that bypass the Controller Command Protocol.
+
 General Concepts
 ----------------
 

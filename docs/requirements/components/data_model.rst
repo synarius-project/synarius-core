@@ -85,6 +85,14 @@ The software architecture of the data model must conform to this UML diagram.
    ``id`` and ``hash_name`` shall be read-only; ``name`` shall be writable.
    ``path`` shall be read-only.
 
+.. comp:: Core model ``type`` (MODEL.*) stored and read-only
+   :id: CORE-COMP-MODEL-017
+   :status: Must
+
+   Each model object shall carry a ``type`` attribute as a stored, exposed, non-writable ``MODEL.*`` string
+   as specified in :doc:`../../specifications/core_type_system`.
+   The value shall be distinct from ``ElementaryInstance.type_key`` (library / functional element name).
+
 .. comp:: Child lookup and movement semantics
    :id: CORE-COMP-MODEL-007
    :status: Must

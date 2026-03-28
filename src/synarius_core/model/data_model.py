@@ -7,6 +7,8 @@ from typing import Any, Iterable
 from uuid import UUID, uuid4
 
 from .attribute_dict import AttributeDict
+from .element_type import ModelElementType
+from .connector_routing import auto_orthogonal_bends, encode_bends_from_polyline, polyline_for_endpoints
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,7 +101,8 @@ class BaseObject:
     """Base class for all model objects.
 
     Persistence rules:
-    - ``_id`` and ``_hash_name`` are persistent.
+    - ``type`` (``MODEL.*`` string) and ``_id`` / ``_hash_name`` are persistent.
+    - ``type`` is stored in ``attribute_dict``, **exposed**, and **not writable** (spec: ``core_type_system``).
     - ``_name`` is transient (only exposed virtually via AttributeDict).
     - ``created_at`` and ``updated_at`` are stored/managed inside ``attribute_dict`` only.
     """
@@ -108,6 +111,7 @@ class BaseObject:
         self,
         *,
         name: str,
+        model_element_type: ModelElementType,
         obj_id: UUID | None = None,
         parent: ComplexInstance | None = None,
     ) -> None:
@@ -117,6 +121,8 @@ class BaseObject:
         self._name: str = _normalize_name(name)
         self._hash_name: str = ""
         self.attribute_dict: AttributeDict = AttributeDict()
+
+        self.attribute_dict["type"] = model_element_type.value
 
         # Managed inside AttributeDict only.
         self.attribute_dict["created_at"] = _utcnow()
@@ -271,12 +277,13 @@ class LocatableInstance(BaseObject):
         self,
         *,
         name: str,
+        model_element_type: ModelElementType,
         position: Point2D | tuple[float, float] = (0.0, 0.0),
         size: Size2D = Size2D(1.0, 1.0),
         obj_id: UUID | None = None,
         parent: ComplexInstance | None = None,
     ) -> None:
-        super().__init__(name=name, obj_id=obj_id, parent=parent)
+        super().__init__(name=name, model_element_type=model_element_type, obj_id=obj_id, parent=parent)
         self.position: Point2D = self._coerce_point(position)
         self.size: Size2D = size
         self._install_locatable_virtuals()
@@ -320,6 +327,7 @@ class ElementaryInstance(LocatableInstance):
         *,
         name: str,
         type_key: str,
+        model_element_type: ModelElementType = ModelElementType.MODEL_ELEMENTARY,
         in_pins: Iterable[Pin] | None = None,
         out_pins: Iterable[Pin] | None = None,
         position: Point2D | tuple[float, float] = (0.0, 0.0),
@@ -327,7 +335,14 @@ class ElementaryInstance(LocatableInstance):
         obj_id: UUID | None = None,
         parent: ComplexInstance | None = None,
     ) -> None:
-        super().__init__(name=name, position=position, size=size, obj_id=obj_id, parent=parent)
+        super().__init__(
+            name=name,
+            model_element_type=model_element_type,
+            position=position,
+            size=size,
+            obj_id=obj_id,
+            parent=parent,
+        )
         self.type_key = type_key
         self.in_pins = list(in_pins or [])
         self.out_pins = list(out_pins or [])
@@ -344,7 +359,13 @@ class Variable(ElementaryInstance):
         obj_id: UUID | None = None,
         **kwargs: Any,
     ) -> None:
-        super().__init__(name=name, type_key=type_key, obj_id=obj_id, **kwargs)
+        super().__init__(
+            name=name,
+            type_key=type_key,
+            model_element_type=ModelElementType.MODEL_VARIABLE,
+            obj_id=obj_id,
+            **kwargs,
+        )
         self.value: Any = value
         self.unit: str = unit
 
@@ -359,7 +380,13 @@ class BasicOperator(ElementaryInstance):
         obj_id: UUID | None = None,
         **kwargs: Any,
     ) -> None:
-        super().__init__(name=name, type_key=type_key, obj_id=obj_id, **kwargs)
+        super().__init__(
+            name=name,
+            type_key=type_key,
+            model_element_type=ModelElementType.MODEL_BASIC_OPERATOR,
+            obj_id=obj_id,
+            **kwargs,
+        )
         self.operation: BasicOperatorType = operation
 
 
@@ -374,7 +401,14 @@ class ComplexInstance(LocatableInstance):
         obj_id: UUID | None = None,
         parent: ComplexInstance | None = None,
     ) -> None:
-        super().__init__(name=name, position=position, size=size, obj_id=obj_id, parent=parent)
+        super().__init__(
+            name=name,
+            model_element_type=ModelElementType.MODEL_COMPLEX,
+            position=position,
+            size=size,
+            obj_id=obj_id,
+            parent=parent,
+        )
         self.children: list[BaseObject] = []
         self.children_by_hash_name: dict[str, BaseObject] = {}
         for child in children or []:
@@ -482,6 +516,7 @@ def _clone_for_paste(obj: BaseObject, *, keep_ids: bool) -> BaseObject:
             target_instance_id=obj.target_instance_id,
             target_pin=obj.target_pin,
             directed=obj.directed,
+            orthogonal_bends=list(obj._orthogonal_bends),
             obj_id=obj_id,
         )
     raise TypeError(f"Unsupported object type for cloning: {type(obj)!r}")
@@ -618,15 +653,72 @@ class Connector(BaseObject):
         target_instance_id: UUID,
         target_pin: str,
         directed: bool = True,
+        orthogonal_bends: Iterable[float] | None = None,
         obj_id: UUID | None = None,
         parent: ComplexInstance | None = None,
     ) -> None:
-        super().__init__(name=name, obj_id=obj_id, parent=parent)
+        super().__init__(
+            name=name,
+            model_element_type=ModelElementType.MODEL_CONNECTOR,
+            obj_id=obj_id,
+            parent=parent,
+        )
         self.source_instance_id = source_instance_id
         self.source_pin = source_pin
         self.target_instance_id = target_instance_id
         self.target_pin = target_pin
         self.directed = directed
+        self._orthogonal_bends: list[float] = [float(x) for x in (orthogonal_bends or ())]
+        self.attribute_dict.set_virtual(
+            "orthogonal_bends",
+            getter=lambda: list(self._orthogonal_bends),
+            setter=self._set_orthogonal_bends,
+            writable=True,
+        )
+
+    def _set_orthogonal_bends(self, value: Any) -> None:
+        if value is None:
+            self._orthogonal_bends = []
+            self._touch()
+            return
+        if isinstance(value, str):
+            parts = [p.strip() for p in value.replace(";", ",").split(",") if p.strip()]
+            self._orthogonal_bends = [float(p) for p in parts]
+            self._touch()
+            return
+        if isinstance(value, (list, tuple)):
+            self._orthogonal_bends = [float(x) for x in value]
+            self._touch()
+            return
+        raise TypeError("orthogonal_bends expects list/tuple of numbers or comma-separated string.")
+
+    def polyline_xy(
+        self,
+        source_xy: tuple[float, float],
+        target_xy: tuple[float, float],
+    ) -> list[tuple[float, float]]:
+        """Scene/model-space vertices for current ``orthogonal_bends`` (or auto layout)."""
+        sx, sy = source_xy
+        tx, ty = target_xy
+        return polyline_for_endpoints(sx, sy, tx, ty, self._orthogonal_bends)
+
+    def materialize_default_bends(self, source_xy: tuple[float, float], target_xy: tuple[float, float]) -> None:
+        """If bends are empty, set default H–V–H bends when geometry needs a knee."""
+        if self._orthogonal_bends:
+            return
+        sx, sy = source_xy
+        tx, ty = target_xy
+        b = auto_orthogonal_bends(sx, sy, tx, ty)
+        if b:
+            self._orthogonal_bends = b
+            self._touch()
+
+    def apply_polyline(self, poly: list[tuple[float, float]], source_xy: tuple[float, float], target_xy: tuple[float, float]) -> None:
+        """Replace bends from a full orthogonal polyline S→T."""
+        sx, sy = source_xy
+        tx, ty = target_xy
+        self._orthogonal_bends = encode_bends_from_polyline(sx, sy, tx, ty, poly)
+        self._touch()
 
     def validate_endpoints(self) -> bool:
         return bool(self.source_pin) and bool(self.target_pin)

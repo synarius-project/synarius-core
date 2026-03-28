@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<LibraryDescription fmfVersion="0.1" name="std" version="1.0.0">
+  <Description>Primitive arithmetic elements for Synarius (FMF v0.1 sample).</Description>
+  <Vendor>Synarius</Vendor>
+  <elements>
+    <Element id="Add" path="components/Add/elementDescription.xml"/>
+  </elements>
+  <Capabilities>
+    <Capability id="pure_function"/>
+  </Capabilities>
+  <ExecutionProfiles>
+    <Hint id="hosted_python"/>
+  </ExecutionProfiles>
+  <RuntimeContributions/>
+</LibraryDescription>

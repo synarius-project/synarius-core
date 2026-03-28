@@ -8,10 +8,15 @@ from uuid import uuid4
 sys.path.append(str(Path(__file__).resolve().parents[1] / "src"))
 
 from synarius_core.model import (  # noqa: E402
+    BasicOperator,
+    BasicOperatorType,
     ComplexInstance,
+    Connector,
     DuplicateIdError,
+    ElementaryInstance,
     IdFactory,
     Model,
+    ModelElementType,
     Pin,
     PinDataType,
     PinDirection,
@@ -102,6 +107,37 @@ class ModelLifecycleTest(unittest.TestCase):
         detached = Variable(name="v", type_key="var")
         self.assertIs(detached.get_root(), detached)
         self.assertIsNone(detached.get_root_model())
+
+
+class ModelElementTypeTest(unittest.TestCase):
+    def test_type_stored_exposed_not_writable(self) -> None:
+        v = Variable(name="v", type_key="custom.lib.widget")
+        self.assertEqual(v.get("type"), ModelElementType.MODEL_VARIABLE.value)
+        self.assertTrue(v.attribute_dict.exposed("type"))
+        self.assertFalse(v.attribute_dict.writable("type"))
+        self.assertFalse(v.attribute_dict.virtual("type"))
+        with self.assertRaises(PermissionError):
+            v.set("type", "MODEL.FAKE")
+
+    def test_types_per_class(self) -> None:
+        model = Model.new("root")
+        self.assertEqual(model.root.get("type"), ModelElementType.MODEL_COMPLEX.value)
+
+        v = Variable(name="v", type_key="x")
+        op = BasicOperator(name="o", type_key="y", operation=BasicOperatorType.PLUS)
+        el = ElementaryInstance(name="e", type_key="z")
+        c = Connector(
+            name="c",
+            source_instance_id=uuid4(),
+            source_pin="a",
+            target_instance_id=uuid4(),
+            target_pin="b",
+        )
+
+        self.assertEqual(v.get("type"), "MODEL.VARIABLE")
+        self.assertEqual(op.get("type"), "MODEL.BASIC_OPERATOR")
+        self.assertEqual(el.get("type"), "MODEL.ELEMENTARY")
+        self.assertEqual(c.get("type"), "MODEL.CONNECTOR")
 
 
 if __name__ == "__main__":

@@ -8,6 +8,7 @@ from .simulation import SimulationFramework, SimulationState
 from . import (
     cli,
     controller,
+    library,
     model,
     persistence,
     fmu,
@@ -16,6 +17,7 @@ from . import (
     recording,
     codegen,
     utils,
+    standard_library,
 )
 
 __all__ = [
@@ -24,6 +26,7 @@ __all__ = [
     # Subpackages
     "cli",
     "controller",
+    "library",
     "model",
     "persistence",
     "fmu",
@@ -32,5 +35,6 @@ __all__ = [
     "recording",
     "codegen",
     "utils",
+    "standard_library",
 ]
 
