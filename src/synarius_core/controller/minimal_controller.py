@@ -12,7 +12,9 @@ from synarius_core.model import (
     BasicOperatorType,
     ComplexInstance,
     Connector,
+    LocatableInstance,
     Model,
+    Size2D,
     Variable,
 )
 
@@ -171,11 +173,24 @@ class MinimalController:
         if type_name == "Variable":
             if not positional:
                 raise CommandError("new Variable requires <name>.")
+            name = positional[0]
+            pos: tuple[float, float] = (0.0, 0.0)
+            size = Size2D(1.0, 1.0)
+            if len(positional) == 1:
+                pass
+            elif len(positional) == 4:
+                pos = (float(positional[1]), float(positional[2]))
+                s = float(positional[3])
+                size = Size2D(s, s)
+            else:
+                raise CommandError("new Variable expects <name> or <name> <x> <y> <size>.")
             obj = Variable(
-                name=positional[0],
+                name=name,
                 type_key=kwargs.get("type_key", "Variable"),
                 value=kwargs.get("value"),
                 unit=kwargs.get("unit", ""),
+                position=pos,
+                size=size,
             )
         elif type_name == "BasicOperator":
             if not positional:
@@ -189,10 +204,26 @@ class MinimalController:
             }
             if symbol not in mapping:
                 raise CommandError("BasicOperator opSymbol must be one of +, -, *, /.")
+            pos_bo: tuple[float, float] = (0.0, 0.0)
+            size_bo = Size2D(1.0, 1.0)
+            if len(positional) == 1:
+                pass
+            elif len(positional) == 3:
+                pos_bo = (float(positional[1]), float(positional[2]))
+            elif len(positional) == 4:
+                pos_bo = (float(positional[1]), float(positional[2]))
+                s_bo = float(positional[3])
+                size_bo = Size2D(s_bo, s_bo)
+            else:
+                raise CommandError(
+                    "new BasicOperator expects <opSymbol> or <opSymbol> <x> <y> or <opSymbol> <x> <y> <size>."
+                )
             obj = BasicOperator(
                 name=kwargs.get("name", f"op_{symbol}"),
                 type_key=kwargs.get("type_key", "BasicOperator"),
                 operation=mapping[symbol],
+                position=pos_bo,
+                size=size_bo,
             )
         elif type_name == "Connector":
             if len(positional) < 2:
@@ -225,14 +256,17 @@ class MinimalController:
         if len(args) < 2:
             raise CommandError("set requires at least two arguments.")
 
+        # Unix-style: options before operands — ``set -p @selection <attr> …``
+        if args[0] == "-p":
+            if len(args) < 3 or args[1] != "@selection":
+                raise CommandError("set -p requires @selection as the next argument.")
+            return self._cmd_set_selection(args[2:], delta_mode=True)
+
         if args[0] == "@selection":
-            if len(args) < 3:
-                raise CommandError("set @selection requires <attr> <value>.")
-            attr = args[1]
-            value = self._parse_value(" ".join(args[2:]))
-            for item in self.selection:
-                self._set_attr(item, attr, value)
-            return str(len(self.selection))
+            rest = args[1:]
+            if rest and rest[0] == "-p":
+                raise CommandError("Delta updates use: set -p @selection <attr> <value> (not set @selection -p …).")
+            return self._cmd_set_selection(rest, delta_mode=False)
 
         target_expr = args[0]
         value = self._parse_value(" ".join(args[1:]))
@@ -243,6 +277,61 @@ class MinimalController:
         else:
             self._set_attr(self.current, target_expr, value)
         return "ok"
+
+    def _cmd_set_selection(self, args: list[str], *, delta_mode: bool) -> str:
+        """``set @selection <attr> <value>`` or ``set -p @selection …`` (via ``delta_mode``)."""
+        if len(args) < 2:
+            raise CommandError(
+                "set -p @selection requires <attr> <value>."
+                if delta_mode
+                else "set @selection requires <attr> <value>."
+            )
+
+        attr = args[0]
+        tail = args[1:]
+
+        if delta_mode:
+            if attr == "position":
+                if len(tail) < 2:
+                    raise CommandError("set -p @selection position requires <dx> <dy>.")
+                dx = float(tail[0])
+                dy = float(tail[1])
+                updated = 0
+                for item in self.selection:
+                    try:
+                        self._apply_position_delta(item, dx, dy)
+                        updated += 1
+                    except CommandError:
+                        continue
+                return str(updated)
+
+            delta_val = self._parse_value(" ".join(tail))
+            if not isinstance(delta_val, (int, float)):
+                raise CommandError("set -p @selection requires a numeric delta for this attribute.")
+            updated = 0
+            for item in self.selection:
+                try:
+                    self._apply_scalar_delta(item, attr, float(delta_val))
+                    updated += 1
+                except CommandError:
+                    continue
+            return str(updated)
+
+        value = self._parse_value(" ".join(tail))
+        for item in self.selection:
+            self._set_attr(item, attr, value)
+        return str(len(self.selection))
+
+    def _apply_scalar_delta(self, obj: Any, attr: str, delta: float) -> None:
+        cur = self._get_attr(obj, attr)
+        if not isinstance(cur, (int, float)):
+            raise CommandError(f"Attribute '{attr}' is not numeric; cannot apply delta.")
+        self._set_attr(obj, attr, float(cur) + delta)
+
+    def _apply_position_delta(self, obj: Any, dx: float, dy: float) -> None:
+        if not isinstance(obj, LocatableInstance):
+            raise CommandError("position delta requires a locatable object.")
+        obj.set_xy((obj.position.x + dx, obj.position.y + dy))
 
     def _cmd_get(self, args: list[str]) -> str:
         if not args:
@@ -263,7 +352,15 @@ class MinimalController:
 
     def _cmd_del(self, args: list[str]) -> str:
         if not args:
-            raise CommandError("del requires at least one ref.")
+            raise CommandError("del requires at least one reference or @selected.")
+
+        if args[0] == "@selected":
+            if len(args) != 1:
+                raise CommandError("del @selected must not be combined with other references.")
+            removed = self._delete_objects_ordered(self._ordered_selection_for_delete())
+            self._prune_selection_after_delete()
+            return str(removed)
+
         removed = 0
         for ref in args:
             obj = self._resolve_ref(ref)
@@ -271,7 +368,63 @@ class MinimalController:
                 continue
             self.model.delete(obj.parent, obj.id)  # type: ignore[arg-type]
             removed += 1
+        self._prune_selection_after_delete()
         return str(removed)
+
+    def _ordered_selection_for_delete(self) -> list[Any]:
+        """Stable delete order: connectors, then operators, then variables, then other types."""
+        seen: set[UUID] = set()
+        unique: list[Any] = []
+        for obj in self.selection:
+            oid = getattr(obj, "id", None)
+            if oid is None or oid in seen:
+                continue
+            seen.add(oid)
+            unique.append(obj)
+
+        connectors: list[Any] = []
+        operators: list[Any] = []
+        variables: list[Any] = []
+        other: list[Any] = []
+        for obj in unique:
+            if isinstance(obj, Connector):
+                connectors.append(obj)
+            elif isinstance(obj, BasicOperator):
+                operators.append(obj)
+            elif isinstance(obj, Variable):
+                variables.append(obj)
+            else:
+                other.append(obj)
+
+        key = lambda o: o.hash_name
+        connectors.sort(key=key)
+        operators.sort(key=key)
+        variables.sort(key=key)
+        other.sort(key=key)
+        return connectors + operators + variables + other
+
+    def _delete_objects_ordered(self, objects: list[Any]) -> int:
+        removed = 0
+        for obj in objects:
+            if obj.parent is None:
+                continue
+            oid = getattr(obj, "id", None)
+            if oid is None:
+                continue
+            self.model.delete(obj.parent, oid)  # type: ignore[arg-type]
+            removed += 1
+        return removed
+
+    def _prune_selection_after_delete(self) -> None:
+        """Drop selection entries that are no longer attached to the model."""
+        kept: list[Any] = []
+        for obj in self.selection:
+            oid = getattr(obj, "id", None)
+            if oid is None:
+                continue
+            if self.model.find_by_id(oid) is not None:
+                kept.append(obj)
+        self.selection = kept
 
     def _cmd_load(self, args: list[str]) -> str:
         if not args:

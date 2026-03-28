@@ -6,10 +6,16 @@ import unittest
 
 sys.path.append(str(Path(__file__).resolve().parents[1] / "src"))
 
-from synarius_core.controller import MinimalController  # noqa: E402
+from synarius_core.controller import CommandError, MinimalController  # noqa: E402
 
 
 class MinimalControllerProtocolTest(unittest.TestCase):
+    def test_new_basic_operator_accepts_position(self) -> None:
+        ctl = MinimalController()
+        ctl.execute("new BasicOperator + 10 20 1 name=OpPlaced")
+        self.assertEqual(float(ctl.execute("get OpPlaced.x")), 10.0)
+        self.assertEqual(float(ctl.execute("get OpPlaced.y")), 20.0)
+
     def test_new_set_get_and_ls(self) -> None:
         ctl = MinimalController()
         created = ctl.execute("new Variable Speed")
@@ -85,6 +91,63 @@ class MinimalControllerProtocolTest(unittest.TestCase):
             result = ctl.execute(f'load "{script_path}"')
             self.assertTrue((result or "").startswith("loaded:"))
             self.assertIn("V1", ctl.execute("ls") or "")
+
+    def test_del_selected_removes_selection(self) -> None:
+        ctl = MinimalController()
+        ctl.execute("new Variable A")
+        ctl.execute("new Variable B")
+        ctl.execute("select A B")
+        removed = ctl.execute("del @selected")
+        self.assertEqual(removed, "2")
+        ls_lines = [ln.strip() for ln in (ctl.execute("ls") or "").splitlines() if ln.strip()]
+        self.assertNotIn("A", ls_lines)
+        self.assertNotIn("B", ls_lines)
+        self.assertEqual(len(ctl.selection), 0)
+
+    def test_del_selected_empty_selection(self) -> None:
+        ctl = MinimalController()
+        self.assertEqual(ctl.execute("del @selected"), "0")
+
+    def test_del_selected_rejects_extra_refs(self) -> None:
+        ctl = MinimalController()
+        ctl.execute("new Variable A")
+        with self.assertRaises(CommandError):
+            ctl.execute("del @selected A")
+
+    def test_del_prunes_selection_when_object_removed_by_ref(self) -> None:
+        ctl = MinimalController()
+        ctl.execute("new Variable A")
+        ctl.execute("select A")
+        ctl.execute("del A")
+        self.assertEqual(len(ctl.selection), 0)
+
+    def test_set_selection_delta_position(self) -> None:
+        ctl = MinimalController()
+        ctl.execute("new Variable A")
+        ctl.execute("new Variable B")
+        ctl.execute("select A B")
+        n = ctl.execute("set -p @selection position 2 -1")
+        self.assertEqual(n, "2")
+        self.assertEqual(float(ctl.execute("get A.x")), 2.0)
+        self.assertEqual(float(ctl.execute("get A.y")), -1.0)
+        self.assertEqual(float(ctl.execute("get B.x")), 2.0)
+        self.assertEqual(float(ctl.execute("get B.y")), -1.0)
+
+    def test_set_selection_delta_scalar(self) -> None:
+        ctl = MinimalController()
+        ctl.execute("new Variable A")
+        ctl.execute("set A.value 10")
+        ctl.execute("select A")
+        n = ctl.execute("set -p @selection value 0.5")
+        self.assertEqual(n, "1")
+        self.assertEqual(float(ctl.execute("get A.value")), 10.5)
+
+    def test_set_selection_delta_rejects_operand_before_option(self) -> None:
+        ctl = MinimalController()
+        ctl.execute("new Variable A")
+        ctl.execute("select A")
+        with self.assertRaises(CommandError):
+            ctl.execute("set @selection -p position 1 2")
 
 
 if __name__ == "__main__":

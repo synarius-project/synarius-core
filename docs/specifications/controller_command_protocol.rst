@@ -67,11 +67,11 @@ Top-Level Command Set
      - New object reference
    * - ``select``
      - Set current selection
-     - ``select <ref...>``
+     - ``select <ref...>`` or ``select`` (clear)
      - Selection updated
    * - ``set``
      - Set attribute(s) on a target
-     - ``set <target> <value>``
+     - ``set …`` / ``set @selection …`` / ``set -p @selection …``
      - Attribute updated
    * - ``get``
      - Read attribute(s) from a target
@@ -79,7 +79,7 @@ Top-Level Command Set
      - Value output
    * - ``del``
      - Delete object(s)
-     - ``del <ref...>``
+     - ``del <ref...>`` or ``del @selected``
      - Object(s) removed
    * - ``load``
      - Load a model from a command stack/script
@@ -129,10 +129,10 @@ Minimum supported construction types:
      - Canonical syntax
    * - ``Variable``
      - Create a variable node
-     - ``new Variable <name> <x> <y> <size> [refName="<ref>"]``
+     - ``new Variable <name> [<x> <y> <size>] [key=value …]``
    * - ``BasicOperator``
      - Create an operator node
-     - ``new BasicOperator <opSymbol> <x> <y> [name="<name>"]``
+     - ``new BasicOperator <opSymbol> [<x> <y> [<size>]] [name="<name>" …]``
    * - ``Connector``
      - Create a connection edge
      - ``new Connector <fromRef> <toRef> idxInPin=<int> [idxOutPin=<int>]``
@@ -154,18 +154,35 @@ Pin semantics:
 - ``idxInPin``: destination input pin index
 - ``idxOutPin``: source output pin index
 
+Placement (locatable diagram nodes)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+For ``Variable`` and ``BasicOperator``, optional trailing numerics set ``position`` (``x``, ``y``) and, when given, square ``size``:
+
+- ``new Variable <name>`` leaves ``(x, y) = (0, 0)`` and default size.
+- ``new Variable <name> <x> <y> <size>`` sets placement (all three numbers required when used).
+- ``new BasicOperator <opSymbol>`` leaves ``(x, y) = (0, 0)`` and default size.
+- ``new BasicOperator <opSymbol> <x> <y>`` sets ``x`` and ``y``; default size remains.
+- ``new BasicOperator <opSymbol> <x> <y> <size>`` sets placement and square size.
+
+Scripts loaded into the model are the source of truth for layout: diagram hosts must place nodes from the instances' ``x`` / ``y`` (and related attributes), not from name-based or host-local position tables.
+
 ``set`` Forms
 -------------
 
 1. ``set <path>.<attr> <value>``
 2. ``set <attr> <value>`` (applies to current context)
 3. ``set @selection <attr> <value>`` (applies to each selected element)
+4. ``set -p @selection <attr> <delta>`` (add ``<delta>`` to the current value of ``<attr>`` on each selected object; option ``-p`` immediately after ``set``)
+5. ``set -p @selection position <dx> <dy>`` (add ``dx``/``dy`` to ``x``/``y`` on each selected locatable object)
 
 Examples::
 
    set @objects/variables/Speed.stim_const_val 10.0
    set LogLevel 1
    set @selection gain 2.5
+   set -p @selection x 0.5
+   set -p @selection position 12 -3
 
 ``set`` Detailed Semantics
 --------------------------
@@ -176,6 +193,10 @@ Target Resolution
 - In ``set <path>.<attr> <value>``, the object is resolved from ``<path>`` and ``<attr>`` is updated on that object.
 - In ``set <attr> <value>``, the current context object is the target.
 - In ``set @selection <attr> <value>``, the update is applied to all selected objects.
+- In ``set -p @selection <attr> <delta>``, the parsed ``<delta>`` must be numeric; it is **added** to the current attribute value on each selected object that exposes a numeric ``<attr>``. Objects that do not support the attribute or a numeric read are **skipped** (they do not count toward the returned update count).
+- In ``set -p @selection position <dx> <dy>``, ``dx`` and ``dy`` are added to the model position of each selected ``LocatableInstance`` (same skip semantics). This form is intended for hosts (e.g. Studio) to apply one shared translation to a multi-selection.
+- ``set @selection -p …`` is **not** valid; use ``set -p @selection …`` only.
+- The return value for ``-p`` forms is the number of objects successfully updated (as a decimal string), not necessarily ``len(selection)``.
 
 Value Parsing
 ~~~~~~~~~~~~~
@@ -247,7 +268,13 @@ Error Behavior
 ----------------------
 
 - ``select <ref1> <ref2> ...`` replaces current selection in specified order.
+- ``select`` with no arguments clears the selection.
 - ``del <ref1> <ref2> ...`` deletes referenced objects and deterministically updates dependent structures (selection/connectors).
+- ``del @selected`` deletes every object in the current controller selection. Deletion order is deterministic: all selected ``Connector`` instances first (by ``hash_name``), then ``BasicOperator``, then ``Variable``, then any other selected types. This matches the order hosts should use so edges are removed before nodes they attach to.
+- ``del @selected`` must appear alone (no further references on the same line). An empty selection yields ``0`` removals.
+- After any ``del`` command, entries that no longer exist in the model are removed from the controller selection.
+
+Note: ``@selection`` is reserved for ``set`` / ``get`` batch targets; ``@selected`` is reserved for ``del`` only.
 
 ``load`` Command
 ----------------
@@ -378,8 +405,8 @@ A) Command Summary
      - Read object state and runtime values
    * - ``del``
      - Mutation
-     - Refs
-     - Remove nodes/edges
+     - Refs or ``@selected``
+     - Remove nodes/edges (batch via current selection)
    * - ``load``
      - Reconstruction
      - Script path (+ optional target path)

@@ -53,7 +53,7 @@ def _print_help() -> None:
                 "  load <file.syn>         Load command-stack script",
                 "",
                 "Protocol commands:",
-                "  ls, lsattr [-l], cd <path>, new ..., select ..., set ..., get ..., del ...",
+                "  ls, lsattr [-l], cd <path>, new ..., select ..., set ... (set -p @selection …), get ..., del ... | del @selected",
             ]
         ),
         DEFAULT_OUTPUT_COLOR,
