@@ -7,6 +7,7 @@ import unittest
 sys.path.append(str(Path(__file__).resolve().parents[1] / "src"))
 
 from synarius_core.controller import CommandError, MinimalController  # noqa: E402
+from synarius_core.variable_naming import InvalidVariableNameError  # noqa: E402
 
 
 class MinimalControllerProtocolTest(unittest.TestCase):
@@ -27,6 +28,17 @@ class MinimalControllerProtocolTest(unittest.TestCase):
         ctl.execute("set Speed.value 3.14")
         got = ctl.execute("get Speed.value")
         self.assertEqual(got, "3.14")
+
+    def test_new_variable_rejects_invalid_python_name(self) -> None:
+        ctl = MinimalController()
+        with self.assertRaises(InvalidVariableNameError):
+            ctl.execute("new Variable 1bad")
+
+    def test_set_name_rejects_invalid_python_identifier(self) -> None:
+        ctl = MinimalController()
+        ctl.execute("new Variable okname")
+        with self.assertRaises(InvalidVariableNameError):
+            ctl.execute("set okname.name bad-name")
 
     def test_select_and_set_selection(self) -> None:
         ctl = MinimalController()
@@ -88,9 +100,23 @@ class MinimalControllerProtocolTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             script_path = Path(tmp) / "model.pyp"
             script_path.write_text(script, encoding="utf-8")
-            result = ctl.execute(f'load "{script_path}"')
-            self.assertTrue((result or "").startswith("loaded:"))
+            ctl.execute(f'load "{script_path}"')
             self.assertIn("V1", ctl.execute("ls") or "")
+
+    def test_load_rebinds_at_main_alias_for_root_attrs(self) -> None:
+        """``load`` replaces ``model``; @main must target the new root or ``set @main.*`` affects the wrong tree."""
+        ctl = MinimalController()
+        root_before = ctl.model.root
+        self.assertIs(ctl.alias_roots["@main"], root_before)
+        script = "new Variable Vloaded"
+        with tempfile.TemporaryDirectory() as tmp:
+            script_path = Path(tmp) / "m.syn"
+            script_path.write_text(script, encoding="utf-8")
+            ctl.execute(f'load "{script_path}"')
+        self.assertIsNot(ctl.model.root, root_before)
+        self.assertIs(ctl.alias_roots["@main"], ctl.model.root)
+        ctl.execute("set @main.simulation_mode true")
+        self.assertTrue(bool(ctl.model.root.get("simulation_mode")))
 
     def test_del_selected_removes_selection(self) -> None:
         ctl = MinimalController()

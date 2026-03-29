@@ -2,6 +2,8 @@ import unittest
 
 from synarius_core.model.connector_routing import (
     auto_orthogonal_bends,
+    bends_absolute_to_relative,
+    bends_relative_to_absolute,
     encode_bends_from_polyline,
     orthogonal_drag_segments,
     orthogonal_polyline,
@@ -67,6 +69,35 @@ class ConnectorRoutingTest(unittest.TestCase):
         )
         poly = c.polyline_xy((0.0, 0.0), (200.0, 50.0))
         self.assertGreaterEqual(len(poly), 2)
+
+    def test_bends_relative_roundtrip(self) -> None:
+        sx, sy = 10.0, 20.0
+        abs_b = [100.0, 50.0, 200.0]
+        rel = bends_absolute_to_relative(sx, sy, abs_b)
+        self.assertAlmostEqual(rel[0], 90.0)
+        self.assertAlmostEqual(rel[1], 30.0)
+        self.assertAlmostEqual(rel[2], 190.0)
+        back = bends_relative_to_absolute(sx, sy, rel)
+        for a, b in zip(abs_b, back):
+            self.assertAlmostEqual(a, b)
+
+    def test_connector_stored_relative_moves_with_source(self) -> None:
+        from uuid import uuid4
+
+        from synarius_core.model import Connector
+
+        c = Connector(
+            name="c",
+            source_instance_id=uuid4(),
+            source_pin="out",
+            target_instance_id=uuid4(),
+            target_pin="in",
+            orthogonal_bends=[90.0, 30.0],
+        )
+        p0 = c.polyline_xy((10.0, 20.0), (200.0, 50.0))
+        p1 = c.polyline_xy((40.0, 20.0), (200.0, 50.0))
+        self.assertAlmostEqual(p0[1][0] + 30.0, p1[1][0])
+        self.assertAlmostEqual(p0[1][1], p1[1][1])
 
 
 if __name__ == "__main__":

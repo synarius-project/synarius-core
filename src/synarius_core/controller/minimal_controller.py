@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID
 
+UndoRedoPair = tuple[list[str], list[str]]
+
 from synarius_core.library import LibraryCatalog
 from synarius_core.model import (
     BaseObject,
@@ -18,6 +20,8 @@ from synarius_core.model import (
     Size2D,
     Variable,
 )
+from synarius_core.model.connector_routing import bends_absolute_to_relative
+from synarius_core.model.diagram_geometry import instance_source_pin_diagram_xy
 
 
 class CommandError(ValueError):
@@ -32,9 +36,15 @@ class MinimalController:
         model: Model | None = None,
         *,
         library_catalog: LibraryCatalog | None = None,
+        max_undo_depth: int = 100,
+        record_undo: bool = True,
     ) -> None:
         self.model = model or Model.new("main")
         self.library_catalog = library_catalog if library_catalog is not None else LibraryCatalog.load_default()
+        self.max_undo_depth = max(1, int(max_undo_depth))
+        self._undo_recording_enabled = bool(record_undo)
+        self._undo_stack: list[UndoRedoPair] = []
+        self._redo_stack: list[UndoRedoPair] = []
         self.current: Any = self.model.root
         self.selection: list[Any] = []
         self.alias_roots: dict[str, Any] = {
@@ -45,6 +55,15 @@ class MinimalController:
             "@signals": self.model.root,
             "@libraries": self.library_catalog.root,
         }
+
+    def _rebind_model_root_aliases(self) -> None:
+        """Point workspace aliases at ``self.model.root`` after the model instance was replaced (e.g. ``load``)."""
+        root = self.model.root
+        self.alias_roots["@main"] = root
+        self.alias_roots["@objects"] = root
+        self.alias_roots["@controller"] = root
+        self.alias_roots["@latent"] = root
+        self.alias_roots["@signals"] = root
 
     # ------------------------- Public API ------------------------------------
 
@@ -60,6 +79,37 @@ class MinimalController:
         cmd = tokens[0]
         args = tokens[1:]
 
+        if cmd == "undo":
+            return self._cmd_undo(args)
+        if cmd == "redo":
+            return self._cmd_redo(args)
+        if cmd == "load":
+            out = self._dispatch_command(cmd, args)
+            self._clear_undo_stacks()
+            return out
+
+        if cmd == "new":
+            out = self._dispatch_command(cmd, args)
+            pair = self._undo_pair_after_new(raw, out)
+            self._record_undo_pair(pair)
+            return out
+
+        if cmd == "select":
+            old_refs = [o.hash_name for o in self.selection]
+            out = self._dispatch_command(cmd, args)
+            if self._undo_recording_enabled:
+                new_refs = [o.hash_name for o in self.selection]
+                undo_ln = "select " + " ".join(shlex.quote(r) for r in old_refs) if old_refs else "select"
+                redo_ln = "select " + " ".join(shlex.quote(r) for r in new_refs) if new_refs else "select"
+                self._record_undo_pair(([undo_ln], [redo_ln]))
+            return out
+
+        pair = self._try_build_undo_pair(cmd, args, raw)
+        out = self._dispatch_command(cmd, args)
+        self._record_undo_pair(pair)
+        return out
+
+    def _dispatch_command(self, cmd: str, args: list[str]) -> str | None:
         if cmd == "ls":
             return self._cmd_ls()
         if cmd == "lsattr":
@@ -76,10 +126,269 @@ class MinimalController:
             return self._cmd_get(args)
         if cmd == "del":
             return self._cmd_del(args)
+        if cmd == "mv":
+            return self._cmd_mv(args)
         if cmd == "load":
             return self._cmd_load(args)
 
         raise CommandError(f"Unknown command '{cmd}'.")
+
+    def _clear_undo_stacks(self) -> None:
+        self._undo_stack.clear()
+        self._redo_stack.clear()
+
+    def _push_undo_only(self, undo_cmds: list[str], redo_cmds: list[str]) -> None:
+        self._undo_stack.append((undo_cmds, redo_cmds))
+        while len(self._undo_stack) > self.max_undo_depth:
+            self._undo_stack.pop(0)
+
+    def _record_undo_pair(self, pair: UndoRedoPair | None) -> None:
+        if pair is None or not self._undo_recording_enabled:
+            return
+        self._push_undo_only(pair[0], pair[1])
+        self._redo_stack.clear()
+
+    def _execute_command_lines_without_undo(self, lines: list[str]) -> None:
+        prev = self._undo_recording_enabled
+        self._undo_recording_enabled = False
+        try:
+            for ln in lines:
+                self.execute(ln)
+        finally:
+            self._undo_recording_enabled = prev
+
+    def _cmd_undo(self, args: list[str]) -> str:
+        n = int(args[0]) if args else 1
+        if n < 1:
+            raise CommandError("undo requires a positive step count.")
+        steps = 0
+        for _ in range(n):
+            if not self._undo_stack:
+                break
+            undo_cmds, redo_cmds = self._undo_stack.pop()
+            self._execute_command_lines_without_undo(undo_cmds)
+            self._redo_stack.append((undo_cmds, redo_cmds))
+            steps += 1
+        return str(steps)
+
+    def _cmd_redo(self, args: list[str]) -> str:
+        n = int(args[0]) if args else 1
+        if n < 1:
+            raise CommandError("redo requires a positive step count.")
+        steps = 0
+        for _ in range(n):
+            if not self._redo_stack:
+                break
+            undo_cmds, redo_cmds = self._redo_stack.pop()
+            self._execute_command_lines_without_undo(redo_cmds)
+            self._push_undo_only(undo_cmds, redo_cmds)
+            steps += 1
+        return str(steps)
+
+    def _container_path_for_mv(self, c: ComplexInstance) -> str:
+        if c is self.model.root:
+            return "@main"
+        parts: list[str] = []
+        n: BaseObject | None = c
+        while n is not None and n is not self.model.root:
+            parts.append(n.hash_name)
+            n = n.parent
+        parts.reverse()
+        return "/" + "/".join(parts)
+
+    def _format_cli_value(self, value: Any) -> str:
+        if isinstance(value, datetime):
+            return shlex.quote(value.isoformat(sep=" ", timespec="seconds"))
+        if isinstance(value, bool):
+            return "true" if value else "false"
+        if isinstance(value, float):
+            return repr(value)
+        if isinstance(value, int):
+            return str(value)
+        if isinstance(value, str):
+            return shlex.quote(value)
+        if isinstance(value, list):
+            inner = ",".join(str(x) for x in value)
+            return shlex.quote(inner)
+        return shlex.quote(repr(value))
+
+    def _try_build_undo_pair(self, cmd: str, args: list[str], raw: str) -> UndoRedoPair | None:
+        if not self._undo_recording_enabled:
+            return None
+        if cmd == "set":
+            return self._undo_pair_set(args, raw)
+        if cmd == "mv":
+            return self._undo_pair_mv(args)
+        if cmd == "del":
+            return self._undo_pair_before_del(args)
+        return None
+
+    def _undo_pair_mv(self, args: list[str]) -> UndoRedoPair | None:
+        if len(args) != 2:
+            return None
+        obj = self._resolve_ref(args[0])
+        dest = self._resolve_path(args[1])
+        if not isinstance(dest, ComplexInstance):
+            return None
+        op = obj.parent
+        if not isinstance(op, ComplexInstance):
+            return None
+        h = obj.hash_name
+        old_p = self._container_path_for_mv(op)
+        new_p = self._container_path_for_mv(dest)
+        undo = [f"mv {shlex.quote(h)} {shlex.quote(old_p)}"]
+        redo = [f"mv {shlex.quote(h)} {shlex.quote(new_p)}"]
+        return (undo, redo)
+
+    def _undo_pair_before_del(self, args: list[str]) -> UndoRedoPair | None:
+        trash = self.model.get_trash_folder()
+        trash_p = self._container_path_for_mv(trash)
+        plans: list[tuple[str, str]] = []
+
+        if args and args[0] == "@selected":
+            if len(args) != 1:
+                return None
+            objs = self._ordered_selection_for_delete()
+        else:
+            objs = [self._resolve_ref(r) for r in args]
+
+        if not objs:
+            return None
+        trash_flags = [self.model.is_in_trash_subtree(o) for o in objs]
+        if any(trash_flags) and not all(trash_flags):
+            raise CommandError("del cannot combine objects inside trash with live objects in one command.")
+        if all(trash_flags):
+            return None
+
+        for obj in objs:
+            if obj.parent is None or not isinstance(obj.parent, ComplexInstance):
+                continue
+            plans.append((obj.hash_name, self._container_path_for_mv(obj.parent)))
+
+        if not plans:
+            return None
+        undo_cmds = [f"mv {shlex.quote(h)} {shlex.quote(p)}" for h, p in reversed(plans)]
+        redo_cmds = [f"mv {shlex.quote(h)} {shlex.quote(trash_p)}" for h, _p in plans]
+        return (undo_cmds, redo_cmds)
+
+    def _undo_pair_after_new(self, raw_line: str, created_line: str | None) -> UndoRedoPair | None:
+        if not self._undo_recording_enabled or not created_line:
+            return None
+        h = created_line.strip()
+        if not h:
+            return None
+        try:
+            obj = self._resolve_ref(h)
+        except CommandError:
+            return None
+        parent = obj.parent
+        if not isinstance(parent, ComplexInstance):
+            return None
+        trash = self.model.get_trash_folder()
+        trash_p = self._container_path_for_mv(trash)
+        back_p = self._container_path_for_mv(parent)
+        undo = [f"mv {shlex.quote(h)} {shlex.quote(trash_p)}"]
+        redo = [f"mv {shlex.quote(h)} {shlex.quote(back_p)}"]
+        return (undo, redo)
+
+    def _undo_pair_set(self, args: list[str], raw: str) -> UndoRedoPair | None:
+        if len(args) < 2:
+            return None
+        redo = [raw]
+
+        if args[0] == "-p" and len(args) >= 3 and args[1] == "@selection":
+            rest = args[2:]
+            attr = rest[0]
+            tail = rest[1:]
+            items = list(self.selection)
+            if not items:
+                return None
+            if attr == "position" and len(tail) >= 2:
+                dx = float(tail[0])
+                dy = float(tail[1])
+                undo_cmds: list[str] = []
+                for item in items:
+                    if not isinstance(item, LocatableInstance):
+                        continue
+                    ox = item.position.x
+                    oy = item.position.y
+                    hr = item.hash_name
+                    undo_cmds.append(f"set {shlex.quote(hr)}.x {self._format_cli_value(ox)}")
+                    undo_cmds.append(f"set {shlex.quote(hr)}.y {self._format_cli_value(oy)}")
+                if not undo_cmds:
+                    return None
+                return (undo_cmds, redo)
+
+            if len(tail) < 1:
+                return None
+            delta_val = self._parse_value(" ".join(tail))
+            if not isinstance(delta_val, (int, float)):
+                return None
+            undo_cmds = []
+            for item in items:
+                try:
+                    cur = self._get_attr(item, attr)
+                except CommandError:
+                    continue
+                if not isinstance(cur, (int, float)):
+                    continue
+                prev = float(cur) - float(delta_val)
+                undo_cmds.append(f"set {shlex.quote(item.hash_name)}.{attr} {self._format_cli_value(prev)}")
+            if not undo_cmds:
+                return None
+            return (undo_cmds, redo)
+
+        if args[0] == "@selection":
+            rest = args[1:]
+            if len(rest) < 2:
+                return None
+            attr = rest[0]
+            value = self._parse_value(" ".join(rest[1:]))
+            undo_cmds = []
+            for item in self.selection:
+                try:
+                    old = self._get_attr(item, attr)
+                except CommandError:
+                    continue
+                undo_cmds.append(f"set {shlex.quote(item.hash_name)}.{attr} {self._format_cli_value(old)}")
+            if not undo_cmds:
+                return None
+            return (undo_cmds, redo)
+
+        target_expr = args[0]
+        value = self._parse_value(" ".join(args[1:]))
+        if "." in target_expr:
+            path, attr = target_expr.rsplit(".", 1)
+            target = self._resolve_path(path)
+            try:
+                old = self._get_attr(target, attr)
+            except CommandError:
+                return None
+            undo = [f"set {target_expr} {self._format_cli_value(old)}"]
+            return (undo, redo)
+
+        try:
+            old = self._get_attr(self.current, target_expr)
+        except CommandError:
+            return None
+        undo = [f"set {target_expr} {self._format_cli_value(old)}"]
+        return (undo, redo)
+
+    def _cmd_mv(self, args: list[str]) -> str:
+        if len(args) != 2:
+            raise CommandError("mv requires exactly <objectRef> <destContainerPath>.")
+        obj = self._resolve_ref(args[0])
+        dest = self._resolve_path(args[1])
+        if not isinstance(dest, ComplexInstance):
+            raise CommandError("mv destination must resolve to a container (ComplexInstance).")
+        if obj is self.model.root:
+            raise CommandError("Cannot move the model root.")
+        if obj is self.model.get_trash_folder():
+            raise CommandError("Cannot move the trash folder.")
+        if not isinstance(obj, BaseObject):
+            raise CommandError("mv source must be a model object.")
+        self.model.reparent(obj, dest)
+        return ""
 
     def execute_script(self, script_path: str | Path) -> list[str]:
         path = Path(script_path)
@@ -252,10 +561,16 @@ class MinimalController:
                     ob_list = [float(p) for p in parts]
                 except ValueError as exc:
                     raise CommandError(f"orthogonal_bends must be comma-separated numbers: {exc}") from exc
+            sp = str(kwargs.get("source_pin", "out"))
+            if ob_list is not None:
+                xy = instance_source_pin_diagram_xy(src, sp)
+                if xy is not None:
+                    sx, sy = xy
+                    ob_list = bends_absolute_to_relative(sx, sy, ob_list)
             obj = Connector(
                 name=kwargs.get("name", "connector"),
                 source_instance_id=src.id,  # type: ignore[arg-type]
-                source_pin=kwargs.get("source_pin", "out"),
+                source_pin=sp,
                 target_instance_id=dst.id,  # type: ignore[arg-type]
                 target_pin=kwargs.get("target_pin", "in"),
                 directed=self._parse_bool(kwargs.get("directed", "true")),
@@ -270,10 +585,10 @@ class MinimalController:
     def _cmd_select(self, args: list[str]) -> str:
         if not args:
             self.selection = []
-            return "0"
+            return ""
         resolved = [self._resolve_ref(token) for token in args]
         self.selection = resolved
-        return str(len(self.selection))
+        return ""
 
     def _cmd_set(self, args: list[str]) -> str:
         if len(args) < 2:
@@ -389,10 +704,18 @@ class MinimalController:
             obj = self._resolve_ref(ref)
             if obj.parent is None:
                 continue
-            self.model.delete(obj.parent, obj.id)  # type: ignore[arg-type]
+            self._delete_one_object(obj)
             removed += 1
         self._prune_selection_after_delete()
         return str(removed)
+
+    def _delete_one_object(self, obj: Any) -> None:
+        if obj.parent is None or obj.id is None:
+            return
+        if self.model.is_in_trash_subtree(obj):
+            self.model.delete(obj.parent, obj.id)  # type: ignore[arg-type]
+        else:
+            self.model.reparent(obj, self.model.get_trash_folder())
 
     def _ordered_selection_for_delete(self) -> list[Any]:
         """Stable delete order: connectors, then operators, then variables, then other types."""
@@ -434,19 +757,23 @@ class MinimalController:
             oid = getattr(obj, "id", None)
             if oid is None:
                 continue
-            self.model.delete(obj.parent, oid)  # type: ignore[arg-type]
+            self._delete_one_object(obj)
             removed += 1
         return removed
 
     def _prune_selection_after_delete(self) -> None:
-        """Drop selection entries that are no longer attached to the model."""
+        """Drop selection entries removed from the model or moved into trash."""
         kept: list[Any] = []
         for obj in self.selection:
             oid = getattr(obj, "id", None)
             if oid is None:
                 continue
-            if self.model.find_by_id(oid) is not None:
-                kept.append(obj)
+            hit = self.model.find_by_id(oid)
+            if hit is None:
+                continue
+            if self.model.is_in_trash_subtree(hit):
+                continue
+            kept.append(hit)
         self.selection = kept
 
     def _cmd_load(self, args: list[str]) -> str:
@@ -465,7 +792,9 @@ class MinimalController:
 
         # Transactional semantics: execute on clone, commit on success.
         temp_model = self.model.clone()
-        temp_controller = MinimalController(temp_model, library_catalog=self.library_catalog)
+        temp_controller = MinimalController(
+            temp_model, library_catalog=self.library_catalog, record_undo=False
+        )
         if cwd_id is not None:
             cloned_cwd = temp_model.find_by_id(cwd_id)
             if isinstance(cloned_cwd, ComplexInstance):
@@ -477,13 +806,14 @@ class MinimalController:
                 raise CommandError("load into=<path> must resolve to ComplexInstance.")
             temp_controller.current = target
 
-        outputs = temp_controller.execute_script(script_path)
+        temp_controller.execute_script(script_path)
 
         # keep-id policy with script replay is equivalent to replaying commands as-is.
         # remap is modeled by keeping model-local ID creation during command execution.
         _ = id_policy
 
         self.model = temp_model
+        self._rebind_model_root_aliases()
         if cwd_id is not None:
             new_cwd = self.model.find_by_id(cwd_id)
             if isinstance(new_cwd, ComplexInstance):
@@ -494,7 +824,7 @@ class MinimalController:
             self.current = self.model.root
         self.selection = [obj for obj_id in sel_ids if (obj := self.model.find_by_id(obj_id)) is not None]
 
-        return f"loaded:{len(outputs)}"
+        return ""
 
     # ------------------------ Parsing / resolution helpers --------------------
 
@@ -542,7 +872,26 @@ class MinimalController:
         except ValueError:
             return text
 
+    def _try_resolve_global_object_ref(self, ref: str) -> Any | None:
+        """Resolve ``name@<uuid>`` anywhere in the model (not only under ``current``)."""
+        s = ref.strip()
+        if not s or s.startswith(("@", "/", ".")):
+            return None
+        if "/" in s:
+            return None
+        if "@" not in s:
+            return None
+        _, tail = s.rsplit("@", 1)
+        try:
+            oid = UUID(tail)
+        except ValueError:
+            return None
+        return self.model.find_by_id(oid)
+
     def _resolve_ref(self, ref: str) -> Any:
+        hit = self._try_resolve_global_object_ref(ref)
+        if hit is not None:
+            return hit
         obj = self._resolve_path(ref)
         if obj is None:
             raise CommandError(f"Could not resolve reference '{ref}'.")

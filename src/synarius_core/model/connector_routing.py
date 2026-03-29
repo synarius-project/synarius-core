@@ -8,6 +8,29 @@ _COLLINEAR_DY = 10.0
 _DEFAULT_DETOUR = 24.0
 
 
+def bends_relative_to_absolute(sx: float, sy: float, relative: list[float]) -> list[float]:
+    """
+    Turn bend coordinates stored **relative to the source pin** (sx, sy) into absolute diagram values.
+
+    Even indices are x-offsets from ``sx``, odd indices y-offsets from ``sy`` (same alternation as
+    :func:`orthogonal_polyline`).
+    """
+    out: list[float] = []
+    for i, v in enumerate(relative):
+        fv = float(v)
+        out.append(fv + sx if i % 2 == 0 else fv + sy)
+    return out
+
+
+def bends_absolute_to_relative(sx: float, sy: float, absolute: list[float]) -> list[float]:
+    """Inverse of :func:`bends_relative_to_absolute` for persisting bends while the source block moves."""
+    out: list[float] = []
+    for i, v in enumerate(absolute):
+        fv = float(v)
+        out.append(fv - sx if i % 2 == 0 else fv - sy)
+    return out
+
+
 def auto_orthogonal_bends(sx: float, sy: float, tx: float, ty: float) -> list[float]:
     """
     Default H–V–H (pins horizontal): interior encoded as [x_mid, y_at_vertical_end].

@@ -3,12 +3,21 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Iterable
+from typing import Any, Iterable, Iterator
 from uuid import UUID, uuid4
+
+from synarius_core.variable_naming import validate_python_variable_name
+from synarius_core.variable_registry import VariableNameRegistry
 
 from .attribute_dict import AttributeDict
 from .element_type import ModelElementType
-from .connector_routing import auto_orthogonal_bends, encode_bends_from_polyline, polyline_for_endpoints
+from .connector_routing import (
+    auto_orthogonal_bends,
+    bends_absolute_to_relative,
+    bends_relative_to_absolute,
+    encode_bends_from_polyline,
+    polyline_for_endpoints,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -359,6 +368,7 @@ class Variable(ElementaryInstance):
         obj_id: UUID | None = None,
         **kwargs: Any,
     ) -> None:
+        name = validate_python_variable_name(name)
         super().__init__(
             name=name,
             type_key=type_key,
@@ -368,6 +378,40 @@ class Variable(ElementaryInstance):
         )
         self.value: Any = value
         self.unit: str = unit
+        self.attribute_dict.set_virtual(
+            "diagram_block_width",
+            getter=self._get_diagram_block_width,
+            setter=None,
+            exposed=False,
+            writable=False,
+        )
+        self._install_stimulation_attributes()
+
+    def _install_stimulation_attributes(self) -> None:
+        """Writable protocol attributes for generic time-based stimulation (see ``dataflow_sim.stimulation``)."""
+        for key, default in (
+            ("stim_kind", "none"),
+            ("stim_p0", 0.0),
+            ("stim_p1", 1.0),
+            ("stim_p2", 1.0),
+            ("stim_p3", 0.0),
+        ):
+            dict.__setitem__(self.attribute_dict, key, (default, None, None, True, True))
+
+    def _get_diagram_block_width(self) -> float:
+        from synarius_core.model.diagram_geometry import variable_diagram_block_width_scene
+
+        return variable_diagram_block_width_scene(self.name)
+
+    def set_name(self, name: str) -> None:
+        vn = validate_python_variable_name(name)
+        old = self.name
+        if vn == old:
+            return
+        super().set_name(vn)
+        model = self.get_root_model()
+        if model is not None:
+            model.variable_registry.on_renamed(old, self.name)
 
 
 class BasicOperator(ElementaryInstance):
@@ -465,7 +509,7 @@ def _iter_subtree(root: BaseObject) -> Iterable[BaseObject]:
 def _clone_for_paste(obj: BaseObject, *, keep_ids: bool) -> BaseObject:
     obj_id = obj.id if keep_ids else None
     if isinstance(obj, Variable):
-        return Variable(
+        v = Variable(
             name=obj.name,
             type_key=obj.type_key,
             value=obj.value,
@@ -476,6 +520,13 @@ def _clone_for_paste(obj: BaseObject, *, keep_ids: bool) -> BaseObject:
             size=obj.size,
             obj_id=obj_id,
         )
+        for key in ("stim_kind", "stim_p0", "stim_p1", "stim_p2", "stim_p3"):
+            if key in obj.attribute_dict:
+                try:
+                    v.set(key, obj.get(key))
+                except (KeyError, PermissionError, TypeError, ValueError):
+                    pass
+        return v
     if isinstance(obj, BasicOperator):
         return BasicOperator(
             name=obj.name,
@@ -506,6 +557,11 @@ def _clone_for_paste(obj: BaseObject, *, keep_ids: bool) -> BaseObject:
         )
         for child in obj.children:
             cloned.paste(_clone_for_paste(child, keep_ids=keep_ids))
+        if "simulation_mode" in obj.attribute_dict:
+            try:
+                cloned.set("simulation_mode", obj.get("simulation_mode"))
+            except (KeyError, PermissionError, TypeError, ValueError):
+                pass
         return cloned
     if isinstance(obj, Connector):
         # Connector endpoints remain as-is; a future remapping pass can adjust them.
@@ -529,8 +585,11 @@ class Model:
         self.context = context or ModelContext()
         self.context.model = self
         self.root = root
+        self.variable_registry = VariableNameRegistry()
         self.attach(root, parent=None, reserve_existing=load_existing_ids, remap_ids=not load_existing_ids)
         self._ensure_main_output_color()
+        self._ensure_trash_folder()
+        self._ensure_simulation_mode_attribute()
 
     @classmethod
     def new(cls, root_name: str = "root") -> Model:
@@ -548,17 +607,101 @@ class Model:
             ("#ADD8E6", None, None, True, True),  # default: light blue
         )
 
+    def _ensure_simulation_mode_attribute(self) -> None:
+        """Studio/console: ``set @main.simulation_mode true|false`` toggles diagram simulation mode."""
+        if "simulation_mode" in self.root.attribute_dict:
+            return
+        dict.__setitem__(self.root.attribute_dict, "simulation_mode", (False, None, None, True, True))
+
+    def _ensure_trash_folder(self) -> ComplexInstance:
+        """Ensure a single ``trash`` :class:`ComplexInstance` exists directly under the model root."""
+        for c in self.root.children:
+            if isinstance(c, ComplexInstance) and c.name == "trash":
+                return c
+        t = ComplexInstance(name="trash")
+        self.attach(t, parent=self.root, reserve_existing=False, remap_ids=False)
+        return t
+
+    def get_trash_folder(self) -> ComplexInstance:
+        """Return the trash container (child ``trash`` of the model root)."""
+        return self._ensure_trash_folder()
+
+    def is_in_trash_subtree(self, node: BaseObject) -> bool:
+        """True if ``node`` is stored under the trash folder (not the trash folder itself)."""
+        trash = self.get_trash_folder()
+        p = node.parent
+        while p is not None:
+            if p is trash:
+                return True
+            p = p.parent
+        return False
+
+    def _will_be_in_trash_subtree_after_reparent(self, new_parent: ComplexInstance) -> bool:
+        trash = self.get_trash_folder()
+        p: BaseObject | None = new_parent
+        while p is not None:
+            if p is trash:
+                return True
+            p = p.parent
+        return False
+
+    def reparent(self, node: BaseObject, new_parent: ComplexInstance) -> None:
+        """Move ``node`` to ``new_parent`` without cloning; updates variable registry across trash boundary."""
+        if node is self.root:
+            raise ValueError("Cannot reparent the model root.")
+        if new_parent.context is not self.context:
+            raise DetachedObjectError("new_parent must belong to this model.")
+        trash = self.get_trash_folder()
+        if node is trash:
+            raise ValueError("Cannot reparent the trash folder.")
+        old_parent = node.parent
+        if old_parent is None or not isinstance(old_parent, ComplexInstance):
+            raise ValueError("Node has no container parent to reparent from.")
+        oid = node.id
+        if oid is None:
+            raise ValueError("Node has no id.")
+
+        p: BaseObject | None = new_parent
+        while p is not None:
+            if p is node:
+                raise ValueError("Cannot move a container into its own subtree.")
+            p = p.parent
+
+        was_trash = self.is_in_trash_subtree(node)
+        will_trash = self._will_be_in_trash_subtree_after_reparent(new_parent)
+        if was_trash != will_trash:
+            for n in _iter_subtree(node):
+                if isinstance(n, Variable):
+                    if was_trash and not will_trash:
+                        self.variable_registry.increment(n.name)
+                    elif not was_trash and will_trash:
+                        self.variable_registry.decrement(n.name)
+
+        old_parent.del_(oid)
+        new_parent.paste(node)
+
     def get_root(self) -> ComplexInstance:
         return self.root
 
     def get_root_model(self) -> Model:
         return self
 
+    def iter_objects(self) -> Iterator[BaseObject]:
+        """Depth-first iteration of all objects in the model (root first)."""
+        yield from _iter_subtree(self.root)
+
     def find_by_id(self, obj_id: UUID) -> BaseObject | None:
         for node in _iter_subtree(self.root):
             if node.id == obj_id:
                 return node
         return None
+
+    def rebuild_variable_registry(self) -> None:
+        """Recount variables outside the trash subtree (repair if registry drifted)."""
+        self.variable_registry.clear()
+        for node in _iter_subtree(self.root):
+            if isinstance(node, Variable) and not self.is_in_trash_subtree(node):
+                self.variable_registry.increment(node.name)
 
     def short_id(self, obj_id: UUID, *, min_len: int = 1) -> str:
         """Return the shortest unique hex prefix for obj_id within this model."""
@@ -613,7 +756,9 @@ class Model:
         if parent is not None and obj not in parent.children:
             parent.paste(obj)
 
-        if isinstance(obj, ComplexInstance):
+        if isinstance(obj, Variable):
+            self.variable_registry.increment(obj.name)
+        elif isinstance(obj, ComplexInstance):
             for child in list(obj.children):
                 self._assign_subtree(child, parent=obj, reserve_existing=reserve_existing)
 
@@ -621,6 +766,9 @@ class Model:
         victim = container.get_child(str(obj_id))
         if victim is None:
             return
+        for node in _iter_subtree(victim):
+            if isinstance(node, Variable):
+                self.variable_registry.decrement(node.name)
         for node in _iter_subtree(victim):
             if node.id is not None:
                 self.context.id_factory.unregister(node.id)
@@ -671,10 +819,23 @@ class Connector(BaseObject):
         self._orthogonal_bends: list[float] = [float(x) for x in (orthogonal_bends or ())]
         self.attribute_dict.set_virtual(
             "orthogonal_bends",
-            getter=lambda: list(self._orthogonal_bends),
+            getter=self._get_orthogonal_bends_virtual,
             setter=self._set_orthogonal_bends,
             writable=True,
         )
+
+    def _get_orthogonal_bends_virtual(self) -> list[float]:
+        """Expose absolute diagram coordinates (CLI / lsattr); internal storage is source-relative."""
+        model = self.get_root_model()
+        if model is None or not self._orthogonal_bends:
+            return list(self._orthogonal_bends)
+        from synarius_core.model.diagram_geometry import connector_source_pin_diagram_xy
+
+        xy = connector_source_pin_diagram_xy(model, self)
+        if xy is None:
+            return list(self._orthogonal_bends)
+        sx, sy = xy
+        return bends_relative_to_absolute(sx, sy, self._orthogonal_bends)
 
     def _set_orthogonal_bends(self, value: Any) -> None:
         if value is None:
@@ -683,14 +844,21 @@ class Connector(BaseObject):
             return
         if isinstance(value, str):
             parts = [p.strip() for p in value.replace(";", ",").split(",") if p.strip()]
-            self._orthogonal_bends = [float(p) for p in parts]
-            self._touch()
-            return
-        if isinstance(value, (list, tuple)):
-            self._orthogonal_bends = [float(x) for x in value]
-            self._touch()
-            return
-        raise TypeError("orthogonal_bends expects list/tuple of numbers or comma-separated string.")
+            abs_list = [float(p) for p in parts]
+        elif isinstance(value, (list, tuple)):
+            abs_list = [float(x) for x in value]
+        else:
+            raise TypeError("orthogonal_bends expects list/tuple of numbers or comma-separated string.")
+        model = self.get_root_model()
+        from synarius_core.model.diagram_geometry import connector_source_pin_diagram_xy
+
+        xy = connector_source_pin_diagram_xy(model, self) if model is not None else None
+        if xy is not None:
+            sx, sy = xy
+            self._orthogonal_bends = bends_absolute_to_relative(sx, sy, abs_list)
+        else:
+            self._orthogonal_bends = abs_list
+        self._touch()
 
     def polyline_xy(
         self,
@@ -700,7 +868,10 @@ class Connector(BaseObject):
         """Scene/model-space vertices for current ``orthogonal_bends`` (or auto layout)."""
         sx, sy = source_xy
         tx, ty = target_xy
-        return polyline_for_endpoints(sx, sy, tx, ty, self._orthogonal_bends)
+        if not self._orthogonal_bends:
+            return polyline_for_endpoints(sx, sy, tx, ty, [])
+        abs_b = bends_relative_to_absolute(sx, sy, self._orthogonal_bends)
+        return polyline_for_endpoints(sx, sy, tx, ty, abs_b)
 
     def materialize_default_bends(self, source_xy: tuple[float, float], target_xy: tuple[float, float]) -> None:
         """If bends are empty, set default H–V–H bends when geometry needs a knee."""
@@ -710,14 +881,15 @@ class Connector(BaseObject):
         tx, ty = target_xy
         b = auto_orthogonal_bends(sx, sy, tx, ty)
         if b:
-            self._orthogonal_bends = b
+            self._orthogonal_bends = bends_absolute_to_relative(sx, sy, b)
             self._touch()
 
     def apply_polyline(self, poly: list[tuple[float, float]], source_xy: tuple[float, float], target_xy: tuple[float, float]) -> None:
         """Replace bends from a full orthogonal polyline S→T."""
         sx, sy = source_xy
         tx, ty = target_xy
-        self._orthogonal_bends = encode_bends_from_polyline(sx, sy, tx, ty, poly)
+        enc = encode_bends_from_polyline(sx, sy, tx, ty, poly)
+        self._orthogonal_bends = bends_absolute_to_relative(sx, sy, enc) if enc else []
         self._touch()
 
     def validate_endpoints(self) -> bool:

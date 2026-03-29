@@ -1,5 +1,7 @@
 """Core data model classes for synarius-core."""
 
+from synarius_core.variable_registry import VariableNameRegistry
+
 from .attribute_dict import AttributeDict
 from .element_type import ModelElementType
 from .data_model import (
@@ -24,6 +26,7 @@ from .data_model import (
 )
 
 __all__ = [
+    "VariableNameRegistry",
     "AttributeDict",
     "ModelElementType",
     "BaseObject",

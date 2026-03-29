@@ -84,23 +84,36 @@ Top-Level Command Set
      - ``get <target>``
      - Value output
    * - ``del``
-     - Delete object(s)
+     - Delete or move to trash (see semantics below)
      - ``del <ref...>`` or ``del @selected``
-     - Object(s) removed
+     - Object(s) moved to trash or permanently removed
+   * - ``mv``
+     - Reparent an object under another container
+     - ``mv <ref> <destContainerPath>``
+     - Object moved; variable registry updated when crossing the trash subtree
+   * - ``undo``
+     - Step backward in controller edit history
+     - ``undo`` or ``undo <n>``
+     - Prior state restored (see history rules)
+   * - ``redo``
+     - Step forward after ``undo``
+     - ``redo`` or ``redo <n>``
+     - Undone change reapplied
    * - ``load``
      - Load a model from a command stack/script
      - ``load "<scriptPath>" [into=<path>] [idPolicy=remap|keep]``
-     - Model elements created/updated
+     - Model elements created/updated; undo/redo stacks cleared
 
 Object Referencing
 ------------------
 
 ``<ref>`` resolution precedence (recommended):
 
-1. direct internal key
-2. name
-3. display name
-4. numeric ID (optional)
+1. **Global stable reference:** a single token of the form ``<name>@<uuid>`` (no ``/``) resolves to the model object with that UUID anywhere in the tree (required so undo/redo can replay ``mv`` lines after objects moved under ``trash``).
+2. direct internal key
+3. name (under current path context)
+4. display name
+5. numeric ID (optional)
 
 If resolution is ambiguous, the controller must raise an explicit error.
 
@@ -275,12 +288,30 @@ Error Behavior
 
 - ``select <ref1> <ref2> ...`` replaces current selection in specified order.
 - ``select`` with no arguments clears the selection.
-- ``del <ref1> <ref2> ...`` deletes referenced objects and deterministically updates dependent structures (selection/connectors).
-- ``del @selected`` deletes every object in the current controller selection. Deletion order is deterministic: all selected ``Connector`` instances first (by ``hash_name``), then ``BasicOperator``, then ``Variable``, then any other selected types. This matches the order hosts should use so edges are removed before nodes they attach to.
+- The model contains a dedicated ``trash`` folder under the root. Objects **not** already under that subtree are **moved into trash** (soft delete) when ``del`` runs; objects **already** in the trash subtree are **permanently** removed from the model.
+- ``del`` must not combine, in one command, objects that are in the trash subtree with objects that are not; implementations must fail with a clear error.
+- ``del <ref1> <ref2> ...`` updates dependent structures (selection/connectors) deterministically.
+- ``del @selected`` applies to every object in the current controller selection. Deletion order is deterministic: all selected ``Connector`` instances first (by ``hash_name``), then ``BasicOperator``, then ``Variable``, then any other selected types. This matches the order hosts should use so edges are removed before nodes they attach to.
 - ``del @selected`` must appear alone (no further references on the same line). An empty selection yields ``0`` removals.
-- After any ``del`` command, entries that no longer exist in the model are removed from the controller selection.
+- After any ``del`` command, the selection is pruned: objects removed from the model or only present under trash are dropped from the selection.
 
 Note: ``@selection`` is reserved for ``set`` / ``get`` batch targets; ``@selected`` is reserved for ``del`` only.
+
+``mv`` Command
+--------------
+
+- ``mv <ref> <destContainerPath>`` reparents the object identified by ``<ref>`` so it becomes a direct child of the container resolved by ``<destContainerPath>`` (must be a ``ComplexInstance``).
+- Moving across the boundary of the trash subtree updates the variable name registry (variables in trash do not count toward live registry entries).
+- The root model object and the canonical ``trash`` folder itself must not be moved.
+
+``undo`` and ``redo``
+---------------------
+
+- Controllers may maintain a bounded linear undo history of user-visible mutations (for example ``set``, ``new``, ``select``, ``mv``, soft ``del``).
+- ``undo`` reapplies the inverse of the last recorded step; ``undo <n>`` applies ``n`` inverses in order (``n`` is a positive decimal integer). ``redo`` / ``redo <n>`` mirror this for steps that were undone.
+- Issuing a new undoable command after ``undo`` clears the redo stack (standard editor semantics).
+- ``load`` is **not** recorded in undo history; a successful ``load`` clears both undo and redo stacks.
+- History depth may be capped (for example default 100 steps); oldest entries are discarded when the cap is exceeded.
 
 ``load`` Command
 ----------------
@@ -412,7 +443,15 @@ A) Command Summary
    * - ``del``
      - Mutation
      - Refs or ``@selected``
-     - Remove nodes/edges (batch via current selection)
+     - Soft-delete to trash or hard-delete from trash
+   * - ``mv``
+     - Mutation
+     - Object ref + container path
+     - Reparent nodes (including restore from trash)
+   * - ``undo`` / ``redo``
+     - History
+     - Optional step count
+     - Reverse or reapply recent edits
    * - ``load``
      - Reconstruction
      - Script path (+ optional target path)
