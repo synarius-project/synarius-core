@@ -58,6 +58,14 @@ SN Core should provide a clean, stable backend that SN Studio (and later other f
 python -m synarius_core
 ```
 
+## Measurement time-series I/O (optional)
+
+Loading measurement files (CSV, Parquet, MDF) for tools such as **Synarius Apps / Dataviewer** is implemented in ``synarius_core.io`` (:class:`~synarius_core.io.timeseries.TimeSeriesBundle`, :func:`~synarius_core.io.timeseries.load_timeseries_file`). Dependencies are **not** installed by default; use the extra:
+
+```bash
+pip install -e ".[timeseries]"
+```
+
 ## Documentation
 
 - Live docs: https://synarius-project.github.io/synarius-core/

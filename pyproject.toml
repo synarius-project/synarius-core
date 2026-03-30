@@ -33,6 +33,12 @@ include = ["synarius_core*"]
 
 [project.optional-dependencies]
 dev = []
+timeseries = [
+  "numpy>=1.24.0",
+  "pandas>=2.0.0",
+  "pyarrow>=14.0.0",
+  "asammdf>=7.0.0",
+]
 docs = [
   "sphinx",
   "sphinx-needs",

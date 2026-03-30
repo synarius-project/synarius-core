@@ -8,16 +8,17 @@ from .simulation import SimulationFramework, SimulationState
 from . import (
     cli,
     controller,
+    codegen,
+    fmu,
+    io,
     library,
     model,
     persistence,
-    fmu,
+    recording,
     run_engine,
     stimulus,
-    recording,
-    codegen,
-    utils,
     standard_library,
+    utils,
 )
 
 __all__ = [
@@ -34,6 +35,7 @@ __all__ = [
     "stimulus",
     "recording",
     "codegen",
+    "io",
     "utils",
     "standard_library",
 ]
