@@ -1,5 +1,7 @@
 # synarius-core (SN Core)
 
+![Synarius title image](docs/_static/synarius-title.png)
+
 GUI-less simulation backend for Synarius.
 
 ## Vision
