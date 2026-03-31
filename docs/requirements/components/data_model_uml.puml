@@ -31,8 +31,10 @@ abstract class LocatableInstance {
 
 class ElementaryInstance {
   +type_key: String
-  +in_pins: PinList
-  +out_pins: PinList
+  +pin: Map
+  --
+  +in_pins: PinList <<derived>>
+  +out_pins: PinList <<derived>>
 }
 
 class Variable {
@@ -113,6 +115,12 @@ LocatableInstance <|-- ComplexInstance
 ElementaryInstance <|-- Variable
 ElementaryInstance <|-- BasicOperator
 BaseObject <|-- Connector
+
+note bottom of ElementaryInstance
+  FMU-oriented diagram blocks use **MODEL.ELEMENTARY**
+  with a library ``type_key`` and optional ``fmu`` subtree
+  (path, fmi_version, …) — no separate model type.
+end note
 
 ComplexInstance *-- BaseObject
 ElementaryInstance *-- Pin

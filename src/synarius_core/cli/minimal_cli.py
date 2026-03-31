@@ -54,6 +54,7 @@ def _print_help() -> None:
                 "",
                 "Protocol commands:",
                 "  ls, lsattr [-l], cd <path> (incl. @libraries/… for FMF libs), new …, select …, set … (set -p @selection …), get …, del … | del @selected",
+                "  fmu inspect <path.fmu> | fmu bind <ref> [from=<path>] | fmu reload <ref> [path=<path>]",
             ]
         ),
         DEFAULT_OUTPUT_COLOR,

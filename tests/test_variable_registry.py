@@ -37,17 +37,21 @@ class VariableNameRegistryTest(unittest.TestCase):
 
 
 class ModelVariableRegistryIntegrationTest(unittest.TestCase):
+    @staticmethod
+    def _count_map(rows: list[tuple[str, int, str]]) -> dict[str, int]:
+        return {name: count for name, count, _mapped in rows}
+
     def test_new_and_del_keep_counts(self) -> None:
         ctl = MinimalController()
         self.assertEqual(ctl.model.variable_registry.rows_ordered_by_name(), [])
         ctl.execute("new Variable Speed")
         ctl.execute("new Variable Speed")
-        rows = dict(ctl.model.variable_registry.rows_ordered_by_name())
+        rows = self._count_map(ctl.model.variable_registry.rows_ordered_by_name())
         self.assertEqual(rows.get("Speed"), 2)
         speeds = [n for n in ctl.model.iter_objects() if isinstance(n, Variable) and n.name == "Speed"]
         self.assertEqual(len(speeds), 2)
         ctl.execute(f"del {speeds[0].hash_name}")
-        rows2 = dict(ctl.model.variable_registry.rows_ordered_by_name())
+        rows2 = self._count_map(ctl.model.variable_registry.rows_ordered_by_name())
         self.assertEqual(rows2.get("Speed"), 1)
 
     def test_rebuild_matches_tree(self) -> None:
@@ -57,7 +61,7 @@ class ModelVariableRegistryIntegrationTest(unittest.TestCase):
         ctl.model.variable_registry.clear()
         self.assertEqual(ctl.model.variable_registry.rows_ordered_by_name(), [])
         ctl.model.rebuild_variable_registry()
-        rows = dict(ctl.model.variable_registry.rows_ordered_by_name())
+        rows = self._count_map(ctl.model.variable_registry.rows_ordered_by_name())
         self.assertEqual(rows.get("A"), 1)
         self.assertEqual(rows.get("B"), 1)
 

@@ -30,6 +30,19 @@ Representation
 The canonical Python API is ``ModelElementType`` in ``synarius_core.model.element_type`` (``str``-based ``Enum``). The string value stored and returned for ``get("type")`` **SHALL** match ``ModelElementType.<MEMBER>.value``.
 
 --------------------------------------------------------------------------------
+Reserved top-level attribute keys (model objects)
+--------------------------------------------------------------------------------
+
+Some top-level ``AttributeDict`` keys are **reserved namespaces** with normative meaning.
+
+* **``pin``**: unified pin map for diagram/FMU connectivity metadata (see ``pin_model.rst``).
+* **``fmu``**: optional subtree for FMU configuration on ``MODEL.ELEMENTARY`` instances (library/plugin convention; map of path, FMI metadata, ``extra_meta``, optional ``variables``, …). Access via ``get("fmu.path")``, etc.
+
+  * **``fmu.variables``**: optional JSON-serializable **list** of dicts (FMI scalar-style metadata: ``name``, ``value_reference``, ``causality``, ``variability``, ``data_type``, …). Hosts **SHOULD** use the same ``name`` strings as diagram connector pins declared via ``fmu_ports`` / ``pin`` when a wire maps to that FMU variable. The catalog is metadata for inspect/runtime; binding remains diagram ``Connector`` endpoints plus ``pin`` names.
+
+Hosts **SHOULD NOT** reuse reserved keys for unrelated purposes. Additional reserved keys **SHALL** be added only via specification updates.
+
+--------------------------------------------------------------------------------
 Normative values (v0.1)
 --------------------------------------------------------------------------------
 
@@ -49,6 +62,8 @@ Normative values (v0.1)
      - ``BasicOperator``
    * - ``MODEL.CONNECTOR``
      - ``Connector``
+
+FMU co-simulation blocks in the diagram use **``MODEL.ELEMENTARY``** with a stable ``type_key`` from an FMF library element (plugin-delivered) and the reserved ``fmu`` attribute subtree — not a distinct ``MODEL.*`` literal.
 
 New ``MODEL.*`` literals **SHALL** be added only by extending ``ModelElementType`` and the corresponding constructors; hosts **SHALL NOT** rewrite ``type`` after construction.
 

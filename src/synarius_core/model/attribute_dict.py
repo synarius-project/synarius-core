@@ -53,8 +53,27 @@ class AttributeDict(dict[str, AttributeEntry]):
     def writable(self, key: str) -> bool:
         return super().__getitem__(key)[self._Field.WRITABLE]
 
+    def allows_structural_value_replace(self, key: str) -> bool:
+        """True if callers may replace the stored value of *key* via ``set_value``.
+
+        Virtual attributes with a setter are treated as replaceable even when ``writable`` is false,
+        because ``set_value`` routes through the setter.
+        """
+        entry = super().__getitem__(key)
+        if entry[self._Field.WRITABLE]:
+            return True
+        return entry[self._Field.SETTER] is not None
+
     def virtual(self, key: str) -> bool:
         return super().__getitem__(key)[self._Field.GETTER] is not None
+
+    def stored_value(self, key: str) -> Any:
+        """Return the logical value for *key* (virtual getters run, stored values otherwise)."""
+        entry = super().__getitem__(key)
+        getter = entry[self._Field.GETTER]
+        if getter is not None:
+            return getter()
+        return entry[self._Field.VALUE]
 
     def set_value(self, key: str, value: Any) -> None:
         """Set an attribute value respecting virtual setters and writability.

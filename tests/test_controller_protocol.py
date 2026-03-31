@@ -1,3 +1,4 @@
+import shlex
 import sys
 import tempfile
 from pathlib import Path
@@ -7,6 +8,7 @@ import unittest
 sys.path.append(str(Path(__file__).resolve().parents[1] / "src"))
 
 from synarius_core.controller import CommandError, MinimalController  # noqa: E402
+from synarius_core.model import ElementaryInstance  # noqa: E402
 from synarius_core.variable_naming import InvalidVariableNameError  # noqa: E402
 
 
@@ -28,6 +30,74 @@ class MinimalControllerProtocolTest(unittest.TestCase):
         ctl.execute("set Speed.value 3.14")
         got = ctl.execute("get Speed.value")
         self.assertEqual(got, "3.14")
+
+    def test_new_fmu_instance(self) -> None:
+        ctl = MinimalController()
+        hn = (ctl.execute('new FmuInstance myFmu fmu_path=/tmp/a.fmu fmi_version=2.0 fmu_type=CoSimulation') or "").strip()
+        self.assertTrue(hn)
+        obj = ctl._resolve_ref(hn)
+        self.assertIsInstance(obj, ElementaryInstance)
+        self.assertEqual(obj.get("type"), "MODEL.ELEMENTARY")
+        self.assertEqual(obj.get("fmu.path"), "/tmp/a.fmu")
+        self.assertEqual(obj.get("fmu.fmi_version"), "2.0")
+        self.assertEqual(obj.get("fmu.fmu_type"), "CoSimulation")
+
+    def test_new_elementary_fmu_block_via_library_type_key(self) -> None:
+        ctl = MinimalController()
+        hn = (
+            ctl.execute(
+                "new Elementary ef type_key=custom.Fmu fmu_path=/tmp/c.fmu fmi_version=3.0 fmu_type=ModelExchange"
+            )
+            or ""
+        ).strip()
+        obj = ctl._resolve_ref(hn)
+        self.assertIsInstance(obj, ElementaryInstance)
+        self.assertEqual(obj.type_key, "custom.Fmu")
+        self.assertEqual(obj.get("fmu.path"), "/tmp/c.fmu")
+        self.assertEqual(obj.get("fmu.fmi_version"), "3.0")
+
+    def test_new_fmu_instance_with_ports_literal(self) -> None:
+        ctl = MinimalController()
+        ports_json = (
+            '[{"name":"u","value_reference":1,'
+            '"causality":"input","variability":"continuous","data_type":"float"}]'
+        )
+        line = "new FmuInstance f2 fmu_path=/tmp/b.fmu " f"fmu_ports={shlex.quote(ports_json)}"
+        hn = (ctl.execute(line) or "").strip()
+        obj = ctl._resolve_ref(hn)
+        self.assertIsInstance(obj, ElementaryInstance)
+        pmap = obj.get("pin")
+        self.assertIn("u", pmap)
+        self.assertEqual(pmap["u"].get("value_reference"), 1)
+
+    def test_new_fmu_instance_with_fmu_variables_literal(self) -> None:
+        ctl = MinimalController()
+        ports_json = (
+            '[{"name":"u","value_reference":1,'
+            '"causality":"input","variability":"continuous","data_type":"float"}]'
+        )
+        vars_json = (
+            '[{"name":"u","value_reference":1,"causality":"input"},'
+            '{"name":"y","value_reference":2,"causality":"output"}]'
+        )
+        line = (
+            "new FmuInstance f3 fmu_path=/tmp/c.fmu "
+            f"fmu_ports={shlex.quote(ports_json)} "
+            f"fmu_variables={shlex.quote(vars_json)}"
+        )
+        hn = (ctl.execute(line) or "").strip()
+        obj = ctl._resolve_ref(hn)
+        self.assertIsInstance(obj, ElementaryInstance)
+        vlist = obj.get("fmu.variables")
+        self.assertEqual(len(vlist), 2)
+        self.assertEqual(vlist[0]["name"], "u")
+        self.assertEqual(vlist[1]["causality"], "output")
+
+    def test_set_get_fmu_extra_meta_nested(self) -> None:
+        ctl = MinimalController()
+        hn = (ctl.execute("new FmuInstance metaBlk fmu_path=/tmp/x.fmu") or "").strip()
+        ctl.execute(f"set {hn}.fmu.extra_meta.note hello")
+        self.assertEqual((ctl.execute(f"get {hn}.fmu.extra_meta.note") or "").strip(), "hello")
 
     def test_new_variable_rejects_invalid_python_name(self) -> None:
         ctl = MinimalController()

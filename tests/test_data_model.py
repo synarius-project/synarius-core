@@ -20,6 +20,11 @@ from synarius_core.model import (  # noqa: E402
     Pin,
     PinDataType,
     PinDirection,
+    Signal,
+    SignalContainer,
+    elementary_fmu_block,
+    VariableDatabase,
+    VariableMappingEntry,
     Variable,
 )
 
@@ -126,6 +131,15 @@ class ModelElementTypeTest(unittest.TestCase):
         v = Variable(name="v", type_key="x")
         op = BasicOperator(name="o", type_key="y", operation=BasicOperatorType.PLUS)
         el = ElementaryInstance(name="e", type_key="z")
+        fmu = elementary_fmu_block(
+            name="f",
+            type_key="fmu.lib",
+            fmu_path="/tmp/x.fmu",
+            fmi_version="2.0",
+            fmu_type="CoSimulation",
+            guid="",
+            model_identifier="m",
+        )
         c = Connector(
             name="c",
             source_instance_id=uuid4(),
@@ -137,7 +151,237 @@ class ModelElementTypeTest(unittest.TestCase):
         self.assertEqual(v.get("type"), "MODEL.VARIABLE")
         self.assertEqual(op.get("type"), "MODEL.BASIC_OPERATOR")
         self.assertEqual(el.get("type"), "MODEL.ELEMENTARY")
+        self.assertEqual(fmu.get("type"), "MODEL.ELEMENTARY")
         self.assertEqual(c.get("type"), "MODEL.CONNECTOR")
+
+
+class ElementaryFmuBlockTest(unittest.TestCase):
+    def test_type_is_elementary(self) -> None:
+        f = elementary_fmu_block(
+            name="fm1",
+            type_key="test",
+            fmu_path="/tmp/a.fmu",
+            fmi_version="2.0",
+            fmu_type="CoSimulation",
+            guid="g",
+            model_identifier="m",
+        )
+        self.assertEqual(f.get("type"), ModelElementType.MODEL_ELEMENTARY.value)
+        self.assertTrue(f.attribute_dict.exposed("type"))
+        self.assertFalse(f.attribute_dict.writable("type"))
+        self.assertFalse(f.attribute_dict.virtual("type"))
+        with self.assertRaises(PermissionError):
+            f.set("type", "MODEL.FAKE")
+
+    def test_fmu_namespace_writable(self) -> None:
+        f = elementary_fmu_block(
+            name="fm1",
+            type_key="test",
+            fmu_path="/tmp/a.fmu",
+            fmi_version="2.0",
+            fmu_type="CoSimulation",
+            guid="g",
+            model_identifier="m",
+            fmu_generation_tool="tool",
+        )
+        self.assertTrue(f.attribute_dict.writable("fmu"))
+
+    def test_optional_numeric_attributes(self) -> None:
+        f = elementary_fmu_block(
+            name="fm1",
+            type_key="test",
+            fmu_path="/tmp/a.fmu",
+            fmi_version="2.0",
+            fmu_type="CoSimulation",
+            guid="",
+            model_identifier="",
+            step_size_hint=0.01,
+            tolerance=1e-6,
+            start_time=0.0,
+            stop_time=10.0,
+        )
+        self.assertEqual(f.get("fmu.step_size_hint"), 0.01)
+        self.assertEqual(f.get("fmu.tolerance"), 1e-6)
+        self.assertEqual(f.get("fmu.start_time"), 0.0)
+        self.assertEqual(f.get("fmu.stop_time"), 10.0)
+
+    def test_fmu_variables_catalog(self) -> None:
+        catalog = [
+            {"name": "h", "value_reference": 0, "causality": "output", "variability": "continuous", "data_type": "Real"},
+            {"name": "g", "value_reference": 1, "causality": "parameter", "variability": "fixed", "unit": "m/s2"},
+        ]
+        f = elementary_fmu_block(
+            name="fm1",
+            type_key="test",
+            fmu_path="/tmp/b.fmu",
+            fmi_version="3.0",
+            fmu_type="CoSimulation",
+            guid="",
+            model_identifier="",
+            fmu_variables=catalog,
+        )
+        vars_ = f.get("fmu.variables")
+        self.assertEqual(len(vars_), 2)
+        self.assertEqual(vars_[0]["name"], "h")
+        self.assertEqual(vars_[0]["value_reference"], 0)
+        self.assertEqual(vars_[0]["causality"], "output")
+        self.assertEqual(vars_[1]["name"], "g")
+        self.assertEqual(vars_[1]["unit"], "m/s2")
+
+    def test_fmu_ports_storage(self) -> None:
+        ports = [
+            {
+                "name": "u",
+                "value_reference": 1,
+                "causality": "input",
+                "variability": "continuous",
+                "data_type": "float",
+                "start_override": 2.5,
+            }
+        ]
+        f = elementary_fmu_block(
+            name="fm1",
+            type_key="test",
+            fmu_path="/tmp/a.fmu",
+            fmi_version="2.0",
+            fmu_type="CoSimulation",
+            guid="",
+            model_identifier="",
+            fmu_ports=ports,
+        )
+        pmap = f.get("pin")
+        self.assertIn("u", pmap)
+        self.assertEqual(pmap["u"]["value_reference"], 1)
+        self.assertEqual(pmap["u"]["start_override"], 2.5)
+        self.assertEqual(f.get("pin.u.direction"), "IN")
+
+    def test_paste_remaps_elementary_fmu_block(self) -> None:
+        model = Model.new("root")
+        f = elementary_fmu_block(
+            name="fm1",
+            type_key="test",
+            fmu_path="/tmp/a.fmu",
+            fmi_version="2.0",
+            fmu_type="CoSimulation",
+            guid="g1",
+            model_identifier="mid",
+            fmu_description="desc",
+            fmu_ports=[{"name": "x", "value_reference": 0, "causality": "output", "variability": "continuous", "data_type": "float"}],
+            fmu_extra_meta={"k": 1},
+        )
+        model.attach(f, parent=model.root, reserve_existing=False, remap_ids=False)
+        pasted = model.paste(model.root, f)
+        self.assertNotEqual(pasted.id, f.id)
+        self.assertEqual(pasted.get("fmu.path"), f.get("fmu.path"))
+        self.assertEqual(pasted.get("fmu.description"), "desc")
+        self.assertIn("x", pasted.get("pin"))
+        self.assertEqual(pasted.get("fmu.extra_meta"), {"k": 1})
+
+    def test_paste_deep_copies_fmu_variables_list(self) -> None:
+        model = Model.new("root")
+        f = elementary_fmu_block(
+            name="fm1",
+            type_key="test",
+            fmu_path="/tmp/a.fmu",
+            fmi_version="2.0",
+            fmu_type="CoSimulation",
+            guid="g1",
+            model_identifier="mid",
+            fmu_variables=[{"name": "x", "value_reference": 42}],
+        )
+        model.attach(f, parent=model.root, reserve_existing=False, remap_ids=False)
+        pasted = model.paste(model.root, f)
+        vars_orig = f.get("fmu.variables")
+        vars_p = pasted.get("fmu.variables")
+        self.assertEqual(vars_orig, vars_p)
+        vars_orig[0]["value_reference"] = 999
+        self.assertEqual(vars_p[0]["value_reference"], 42)
+
+
+class HierarchicalAttributePathTest(unittest.TestCase):
+    def test_variable_pin_paths(self) -> None:
+        v = Variable(name="v", type_key="var")
+        self.assertEqual(v.get("pin.out.direction"), "OUT")
+        v.set("pin.out.y", 0.25)
+        self.assertEqual(v.get("pin.out.y"), 0.25)
+        pmap = v.get("pin")
+        self.assertIsInstance(pmap, dict)
+        self.assertIn("out", pmap)
+
+    def test_split_path_escapes(self) -> None:
+        from synarius_core.model.attribute_path import join_attribute_path, split_attribute_path
+
+        s = join_attribute_path(["a", "b.c", "d"])
+        self.assertEqual(split_attribute_path(s), ["a", "b.c", "d"])
+
+
+class MeasurementsRecordingTest(unittest.TestCase):
+    def test_measurements_tree_created_for_main(self) -> None:
+        model = Model.new("main")
+        meas = model.get_root_by_type(ModelElementType.MODEL_MEASUREMENTS)
+        self.assertIsNotNone(meas)
+        stimuli = model.get_root_by_type(ModelElementType.MODEL_STIMULI)
+        recording = model.get_root_by_type(ModelElementType.MODEL_RECORDING)
+        self.assertIsNotNone(stimuli)
+        self.assertIsNotNone(recording)
+        self.assertIsInstance(stimuli, SignalContainer)
+        self.assertIsInstance(recording, SignalContainer)
+
+    def test_signal_container_series_lifecycle(self) -> None:
+        model = Model.new("main")
+        recording = model.get_root_by_type(ModelElementType.MODEL_RECORDING)
+        self.assertIsInstance(recording, SignalContainer)
+        rec = recording
+
+        sig = Signal(name="ch1")
+        model.attach(sig, parent=rec, reserve_existing=False, remap_ids=False)  # type: ignore[arg-type]
+        t = [0.0, 1.0, 2.0]
+        y = [10.0, 11.0, 12.0]
+        rec.set_series(sig, t, y)
+        t_out, y_out = rec.get_series(sig)
+        self.assertEqual(t_out, t)
+        self.assertEqual(y_out, y)
+
+        rec.append_samples(sig, [3.0, 4.0], [13.0, 14.0], max_points=10)
+        t2, y2 = rec.get_series(sig)
+        self.assertEqual(t2, [0.0, 1.0, 2.0, 3.0, 4.0])
+        self.assertEqual(y2, [10.0, 11.0, 12.0, 13.0, 14.0])
+
+        rec.clear_series(sig)
+        t3, y3 = rec.get_series(sig)
+        self.assertEqual(t3, [])
+        self.assertEqual(y3, [])
+
+        rec.set_series(sig, [0.0], [1.0])
+        rec.clear_all_series()
+        t4, y4 = rec.get_series(sig)
+        self.assertEqual(t4, [])
+        self.assertEqual(y4, [])
+
+
+class VariableMappingDatabaseTest(unittest.TestCase):
+    def test_variable_database_created_for_main(self) -> None:
+        model = Model.new("main")
+        db = model.get_root_by_type(ModelElementType.MODEL_VARIABLE_DATABASE)
+        self.assertIsNotNone(db)
+        self.assertIsInstance(db, VariableDatabase)
+
+    def test_mapping_entries_follow_variable_registry(self) -> None:
+        model = Model.new("main")
+        v = Variable(name="speed", type_key="var")
+        model.attach(v, parent=model.root, reserve_existing=False, remap_ids=False)
+        db = model.get_variable_database()
+        self.assertIsInstance(db, VariableDatabase)
+        entry = db.entry_for_name("speed")
+        self.assertIsInstance(entry, VariableMappingEntry)
+        self.assertEqual(entry.get("mapped_signal"), "None")
+
+        model.set_variable_mapped_signal("speed", "speed")
+        self.assertEqual(model.variable_mapped_signal("speed"), "speed")
+
+        assert entry.id is not None
+        model.delete(model.root, v.id)  # type: ignore[arg-type]
+        self.assertIsNone(db.entry_for_name("speed"))
 
 
 if __name__ == "__main__":

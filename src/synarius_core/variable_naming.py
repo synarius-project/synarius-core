@@ -19,3 +19,16 @@ def validate_python_variable_name(name: str) -> str:
     if keyword.iskeyword(n):
         raise InvalidVariableNameError(f"Variable name {n!r} is a reserved Python keyword.")
     return n
+
+
+def validate_pin_name(name: str) -> str:
+    """Return stripped ``name`` if it is a usable *pin segment* (identifier; keywords allowed).
+
+    Diagram pins frequently use names like ``in`` / ``out`` which are Python keywords.
+    """
+    n = name.strip()
+    if not n:
+        raise InvalidVariableNameError("Pin name is empty.")
+    if not n.isidentifier():
+        raise InvalidVariableNameError(f"Pin name {n!r} is not a valid identifier segment.")
+    return n

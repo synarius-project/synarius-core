@@ -33,6 +33,9 @@ include = ["synarius_core*"]
 
 [project.optional-dependencies]
 dev = []
+fmu = [
+  "fmpy>=0.3.0",
+]
 timeseries = [
   "numpy>=1.24.0",
   "pandas>=2.0.0",

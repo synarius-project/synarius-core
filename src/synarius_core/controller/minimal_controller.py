@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import ast
+import json
 import shlex
 from datetime import datetime
 from pathlib import Path
@@ -9,19 +11,29 @@ from uuid import UUID
 UndoRedoPair = tuple[list[str], list[str]]
 
 from synarius_core.library import LibraryCatalog
+from synarius_core.plugins.registry import PluginRegistry
 from synarius_core.model import (
     BaseObject,
     BasicOperator,
     BasicOperatorType,
     ComplexInstance,
     Connector,
+    DataViewer,
+    DEFAULT_FMU_LIBRARY_TYPE_KEY,
+    ElementaryInstance,
     LocatableInstance,
     Model,
     Size2D,
     Variable,
+    VariableMappingEntry,
+    elementary_fmu_block,
+    pin_map_from_library_ports,
 )
+from synarius_core.model.attribute_path import split_attribute_path
 from synarius_core.model.connector_routing import bends_absolute_to_relative
 from synarius_core.model.diagram_geometry import instance_source_pin_diagram_xy
+from synarius_core.fmu.bind import FmuBindError, bind_elementary_from_fmu_path, bind_fmu_inspection_to_elementary
+from synarius_core.fmu.inspection import FmuInspectError, inspect_fmu_path
 
 
 class CommandError(ValueError):
@@ -36,11 +48,13 @@ class MinimalController:
         model: Model | None = None,
         *,
         library_catalog: LibraryCatalog | None = None,
+        plugin_registry: PluginRegistry | None = None,
         max_undo_depth: int = 100,
         record_undo: bool = True,
     ) -> None:
         self.model = model or Model.new("main")
         self.library_catalog = library_catalog if library_catalog is not None else LibraryCatalog.load_default()
+        self.plugin_registry = plugin_registry if plugin_registry is not None else PluginRegistry.load_default()
         self.max_undo_depth = max(1, int(max_undo_depth))
         self._undo_recording_enabled = bool(record_undo)
         self._undo_stack: list[UndoRedoPair] = []
@@ -103,6 +117,9 @@ class MinimalController:
                 redo_ln = "select " + " ".join(shlex.quote(r) for r in new_refs) if new_refs else "select"
                 self._record_undo_pair(([undo_ln], [redo_ln]))
             return out
+
+        if cmd == "fmu":
+            return self._cmd_fmu(args)
 
         pair = self._try_build_undo_pair(cmd, args, raw)
         out = self._dispatch_command(cmd, args)
@@ -358,7 +375,7 @@ class MinimalController:
         target_expr = args[0]
         value = self._parse_value(" ".join(args[1:]))
         if "." in target_expr:
-            path, attr = target_expr.rsplit(".", 1)
+            path, attr = self._cli_ref_and_attrpath(target_expr)
             target = self._resolve_path(path)
             try:
                 old = self._get_attr(target, attr)
@@ -390,17 +407,23 @@ class MinimalController:
         self.model.reparent(obj, dest)
         return ""
 
-    def execute_script(self, script_path: str | Path) -> list[str]:
+    def execute_script(self, script_path: str | Path, *, command_trace: list[str] | None = None) -> list[str]:
         path = Path(script_path)
         if not path.exists():
             raise CommandError(f"Script not found: {path}")
 
         outputs: list[str] = []
         for line_no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            if command_trace is not None:
+                prompt = str(self.current.get("prompt_path")) if self.current is not None else "<none>"
+                command_trace.append(f"  {prompt}> {stripped}")
             try:
-                result = self.execute(line)
+                result = self.execute(stripped)
             except Exception as exc:
-                raise CommandError(f"Script error at line {line_no}: {line.strip()} -> {exc}") from exc
+                raise CommandError(f"Script error at line {line_no}: {stripped} -> {exc}") from exc
             if result is not None:
                 outputs.append(result)
         return outputs
@@ -431,25 +454,72 @@ class MinimalController:
                 raise CommandError("lsattr context must resolve to an object with attributes.")
             context = resolved
 
-        keys = sorted(context.attribute_dict.keys())
-        return self._format_lsattr_table(context, keys, long_mode=long_mode)
+        rows2 = self._build_lsattr_rows(context)
+        return self._format_lsattr_rows(context, rows2, long_mode=long_mode)
 
-    def _format_lsattr_table(self, context: Any, keys: list[str], *, long_mode: bool) -> str:
-        rows: list[tuple[str, ...]] = []
-        for key in keys:
-            value = self._format_value(self._get_attr(context, key))
+    def _flatten_mapping_for_lsattr(self, prefix: str, d: dict[str, Any]) -> list[tuple[str, Any]]:
+        out: list[tuple[str, Any]] = []
+        for k in sorted(d.keys()):
+            v = d[k]
+            path = f"{prefix}.{k}"
+            if isinstance(v, dict):
+                out.extend(self._flatten_mapping_for_lsattr(path, v))
+            else:
+                out.append((path, v))
+        return out
+
+    def _build_lsattr_rows(self, context: Any) -> list[tuple[str, Any]]:
+        rows: list[tuple[str, Any]] = []
+        prev_group: str | None = None
+        for key in sorted(context.attribute_dict.keys()):
+            raw_val = context.attribute_dict.stored_value(key)
+            if isinstance(raw_val, dict) and not context.attribute_dict.virtual(key):
+                flat = self._flatten_mapping_for_lsattr(key, raw_val)
+                for fk, fv in flat:
+                    g = fk.split(".", 1)[0]
+                    if prev_group is not None and g != prev_group:
+                        rows.append(("__gap__", None))
+                    prev_group = g
+                    rows.append((fk, fv))
+                continue
+            g = key.split(".", 1)[0]
+            if prev_group is not None and g != prev_group:
+                rows.append(("__gap__", None))
+            prev_group = g
+            rows.append((key, context.attribute_dict[key]))
+        return rows
+
+    def _lsattr_meta_for_key(self, context: Any, flat_key: str) -> tuple[bool, bool, bool]:
+        root = flat_key.split(".", 1)[0]
+        return (
+            context.attribute_dict.virtual(root),
+            context.attribute_dict.exposed(root),
+            context.attribute_dict.writable(root),
+        )
+
+    def _format_lsattr_rows(self, context: Any, rows: list[tuple[str, Any]], *, long_mode: bool) -> str:
+        rows_out_merged: list[tuple[str, ...]] = []
+        for key, value in rows:
+            if key == "__gap__":
+                if long_mode:
+                    rows_out_merged.append((" ", " ", " ", " ", " "))
+                else:
+                    rows_out_merged.append((" ", " "))
+                continue
+            val = self._format_value(value)
             if long_mode:
-                rows.append(
+                virt, exp, wr = self._lsattr_meta_for_key(context, key)
+                rows_out_merged.append(
                     (
                         key,
-                        value,
-                        "true" if context.attribute_dict.virtual(key) else "false",
-                        "true" if context.attribute_dict.exposed(key) else "false",
-                        "true" if context.attribute_dict.writable(key) else "false",
+                        val,
+                        "true" if virt else "false",
+                        "true" if exp else "false",
+                        "true" if wr else "false",
                     )
                 )
             else:
-                rows.append((key, value))
+                rows_out_merged.append((key, val))
 
         headers: tuple[str, ...]
         if long_mode:
@@ -458,7 +528,7 @@ class MinimalController:
             headers = ("NAME", "VALUE")
 
         widths = [len(h) for h in headers]
-        for row in rows:
+        for row in rows_out_merged:
             for i, cell in enumerate(row):
                 widths[i] = max(widths[i], len(cell))
 
@@ -466,8 +536,16 @@ class MinimalController:
             return "  ".join(cell.ljust(widths[i]) for i, cell in enumerate(cells))
 
         output = [fmt_row(headers)]
-        output.extend(fmt_row(row) for row in rows)
+        output.extend(fmt_row(row) for row in rows_out_merged)
         return "\n".join(output)
+
+    def _cli_ref_and_attrpath(self, target_expr: str) -> tuple[str, str]:
+        parts = split_attribute_path(target_expr.strip())
+        if len(parts) < 2:
+            raise CommandError(f"Expected <objectRef>.<attr.path>, got {target_expr!r}.")
+        ref = parts[0]
+        attr = ".".join(parts[1:])
+        return ref, attr
 
     def _format_value(self, value: Any) -> str:
         if isinstance(value, datetime):
@@ -481,6 +559,36 @@ class MinimalController:
         target = self._resolve_path(args[0])
         self.current = target
         return str(self.current.get("prompt_path"))
+
+    def _library_pin_seed_for_type_key(self, type_key: str) -> dict[str, dict[str, Any]] | None:
+        if "." not in type_key:
+            return None
+        lib_name, elem_id = type_key.split(".", 1)
+        for lib in self.library_catalog.libraries:
+            if lib.name != lib_name:
+                continue
+            for elem in lib.elements:
+                if elem.element_id == elem_id:
+                    return pin_map_from_library_ports(elem.ports)
+        return None
+
+    def _parse_placed_elementary(
+        self, positional: list[str], *, label: str
+    ) -> tuple[str, tuple[float, float], Size2D]:
+        if not positional:
+            raise CommandError(f"{label} requires <name>.")
+        name = positional[0]
+        pos: tuple[float, float] = (0.0, 0.0)
+        size = Size2D(1.0, 1.0)
+        if len(positional) == 1:
+            pass
+        elif len(positional) == 4:
+            pos = (float(positional[1]), float(positional[2]))
+            s = float(positional[3])
+            size = Size2D(s, s)
+        else:
+            raise CommandError(f"{label} expects <name> or <name> <x> <y> <size>.")
+        return name, pos, size
 
     def _cmd_new(self, args: list[str]) -> str:
         if not args:
@@ -548,6 +656,14 @@ class MinimalController:
                 position=pos_bo,
                 size=size_bo,
             )
+        elif type_name == "DataViewer":
+            pos_dv: tuple[float, float] = self._next_dataviewer_default_position()
+            if len(positional) >= 2:
+                pos_dv = (float(positional[0]), float(positional[1]))
+            elif len(positional) == 1:
+                raise CommandError("new DataViewer expects no args or <x> <y>.")
+            vid = self.model.allocate_dataviewer_id()
+            obj = DataViewer(viewer_id=vid, position=pos_dv, size=Size2D(1.0, 1.0))
         elif type_name == "Connector":
             if len(positional) < 2:
                 raise CommandError("new Connector requires <fromRef> <toRef>.")
@@ -576,11 +692,100 @@ class MinimalController:
                 directed=self._parse_bool(kwargs.get("directed", "true")),
                 orthogonal_bends=ob_list,
             )
+        elif type_name == "Elementary":
+            el_name, pos_el, size_el = self._parse_placed_elementary(positional, label="new Elementary")
+            tk = kwargs.get("type_key")
+            if not tk or str(tk).strip() == "":
+                raise CommandError("new Elementary requires type_key=…")
+            tk_s = str(tk)
+            lib_pins = self._library_pin_seed_for_type_key(tk_s)
+            pin_seed = lib_pins if lib_pins else None
+            fmu_path_kw = kwargs.get("fmu_path")
+            if fmu_path_kw and str(fmu_path_kw).strip() != "":
+                ports_kw = self._parse_fmu_ports_kw(kwargs)
+                vars_kw = self._parse_fmu_variables_kw(kwargs)
+                extra_kw = self._parse_fmu_extra_meta_kw(kwargs)
+                obj = elementary_fmu_block(
+                    name=el_name,
+                    type_key=tk_s,
+                    library_pin_seed=pin_seed,
+                    fmu_path=str(fmu_path_kw),
+                    fmi_version=str(kwargs.get("fmi_version", "2.0")),
+                    fmu_type=str(kwargs.get("fmu_type", "CoSimulation")),
+                    guid=str(kwargs.get("guid", "")),
+                    model_identifier=str(kwargs.get("model_identifier", "")),
+                    fmu_description=str(kwargs.get("fmu_description", "")),
+                    fmu_author=str(kwargs.get("fmu_author", "")),
+                    fmu_model_version=str(kwargs.get("fmu_model_version", "")),
+                    fmu_generation_tool=str(kwargs.get("fmu_generation_tool", "")),
+                    fmu_generation_date=str(kwargs.get("fmu_generation_date", "")),
+                    step_size_hint=self._optional_float_kw(kwargs, "step_size_hint"),
+                    tolerance=self._optional_float_kw(kwargs, "tolerance"),
+                    start_time=self._optional_float_kw(kwargs, "start_time"),
+                    stop_time=self._optional_float_kw(kwargs, "stop_time"),
+                    fmu_ports=ports_kw,
+                    fmu_variables=vars_kw,
+                    fmu_extra_meta=extra_kw,
+                    position=pos_el,
+                    size=size_el,
+                )
+            else:
+                obj = ElementaryInstance(
+                    name=el_name,
+                    type_key=tk_s,
+                    pin=pin_seed,
+                    position=pos_el,
+                    size=size_el,
+                )
+        elif type_name == "FmuInstance":
+            fm_name, pos_fm, size_fm = self._parse_placed_elementary(positional, label="new FmuInstance")
+            fmu_path_kw = kwargs.get("fmu_path")
+            if not fmu_path_kw or str(fmu_path_kw).strip() == "":
+                raise CommandError("new FmuInstance requires fmu_path=…")
+            tk_s = str(kwargs.get("type_key", DEFAULT_FMU_LIBRARY_TYPE_KEY))
+            lib_pins = self._library_pin_seed_for_type_key(tk_s)
+            ports_kw = self._parse_fmu_ports_kw(kwargs)
+            vars_kw = self._parse_fmu_variables_kw(kwargs)
+            extra_kw = self._parse_fmu_extra_meta_kw(kwargs)
+            obj = elementary_fmu_block(
+                name=fm_name,
+                type_key=tk_s,
+                library_pin_seed=lib_pins if lib_pins else None,
+                fmu_path=str(fmu_path_kw),
+                fmi_version=str(kwargs.get("fmi_version", "2.0")),
+                fmu_type=str(kwargs.get("fmu_type", "CoSimulation")),
+                guid=str(kwargs.get("guid", "")),
+                model_identifier=str(kwargs.get("model_identifier", "")),
+                fmu_description=str(kwargs.get("fmu_description", "")),
+                fmu_author=str(kwargs.get("fmu_author", "")),
+                fmu_model_version=str(kwargs.get("fmu_model_version", "")),
+                fmu_generation_tool=str(kwargs.get("fmu_generation_tool", "")),
+                fmu_generation_date=str(kwargs.get("fmu_generation_date", "")),
+                step_size_hint=self._optional_float_kw(kwargs, "step_size_hint"),
+                tolerance=self._optional_float_kw(kwargs, "tolerance"),
+                start_time=self._optional_float_kw(kwargs, "start_time"),
+                stop_time=self._optional_float_kw(kwargs, "stop_time"),
+                fmu_ports=ports_kw,
+                fmu_variables=vars_kw,
+                fmu_extra_meta=extra_kw,
+                position=pos_fm,
+                size=size_fm,
+            )
         else:
             raise CommandError(f"Unsupported new type '{type_name}'.")
 
         self.model.attach(obj, parent=self.current, reserve_existing=False, remap_ids=False)
         return obj.hash_name
+
+    def _next_dataviewer_default_position(self) -> tuple[float, float]:
+        """Bottom-left default placement; subsequent viewers continue to the right in one row."""
+        existing = self.model.iter_dataviewers()
+        idx = len(existing)
+        # Model-space coordinates (scene uses UI_SCALE in Studio layout).
+        start_x = 20.0
+        start_y = 440.0
+        step_x = 80.0
+        return (start_x + idx * step_x, start_y)
 
     def _cmd_select(self, args: list[str]) -> str:
         if not args:
@@ -609,7 +814,7 @@ class MinimalController:
         target_expr = args[0]
         value = self._parse_value(" ".join(args[1:]))
         if "." in target_expr:
-            path, attr = target_expr.rsplit(".", 1)
+            path, attr = self._cli_ref_and_attrpath(target_expr)
             target = self._resolve_path(path)
             self._set_attr(target, attr, value)
         else:
@@ -683,7 +888,7 @@ class MinimalController:
 
         target_expr = args[0]
         if "." in target_expr:
-            path, attr = target_expr.rsplit(".", 1)
+            path, attr = self._cli_ref_and_attrpath(target_expr)
             target = self._resolve_path(path)
             return str(self._get_attr(target, attr))
         return str(self._get_attr(self.current, target_expr))
@@ -712,6 +917,27 @@ class MinimalController:
     def _delete_one_object(self, obj: Any) -> None:
         if obj.parent is None or obj.id is None:
             return
+        # Wenn ein DataViewer gelöscht wird, entferne seine ID aus allen Variablen-Messzuordnungen.
+        if isinstance(obj, DataViewer):
+            try:
+                dv_id = int(obj.get("dataviewer_id"))
+            except (KeyError, TypeError, ValueError):
+                dv_id = None
+            if dv_id is not None:
+                from synarius_core.model import Variable  # lokaler Import, um Zyklen zu vermeiden
+
+                for node in self.model.iter_objects():
+                    if isinstance(node, Variable):
+                        try:
+                            ids = list(node.get("dataviewer_measure_ids") or [])
+                        except Exception:
+                            continue
+                        if dv_id in ids:
+                            new_ids = [i for i in ids if i != dv_id]
+                            try:
+                                node.set("dataviewer_measure_ids", new_ids)
+                            except Exception:
+                                continue
         if self.model.is_in_trash_subtree(obj):
             self.model.delete(obj.parent, obj.id)  # type: ignore[arg-type]
         else:
@@ -793,7 +1019,10 @@ class MinimalController:
         # Transactional semantics: execute on clone, commit on success.
         temp_model = self.model.clone()
         temp_controller = MinimalController(
-            temp_model, library_catalog=self.library_catalog, record_undo=False
+            temp_model,
+            library_catalog=self.library_catalog,
+            plugin_registry=self.plugin_registry,
+            record_undo=False,
         )
         if cwd_id is not None:
             cloned_cwd = temp_model.find_by_id(cwd_id)
@@ -806,7 +1035,8 @@ class MinimalController:
                 raise CommandError("load into=<path> must resolve to ComplexInstance.")
             temp_controller.current = target
 
-        temp_controller.execute_script(script_path)
+        command_trace: list[str] = []
+        temp_controller.execute_script(script_path, command_trace=command_trace)
 
         # keep-id policy with script replay is equivalent to replaying commands as-is.
         # remap is modeled by keeping model-local ID creation during command execution.
@@ -824,7 +1054,82 @@ class MinimalController:
             self.current = self.model.root
         self.selection = [obj for obj_id in sel_ids if (obj := self.model.find_by_id(obj_id)) is not None]
 
-        return ""
+        return "\n".join(command_trace)
+
+    def _cmd_fmu(self, args: list[str]) -> str:
+        """``fmu inspect <path>`` | ``fmu bind <ref> [from=<path>]`` | ``fmu reload <ref> [path=<path>]``."""
+        if not args:
+            raise CommandError("fmu requires a subcommand: inspect, bind, reload.")
+        sub = args[0]
+        rest = args[1:]
+
+        if sub == "inspect":
+            if len(rest) != 1:
+                raise CommandError("fmu inspect requires exactly one path (quote if it contains spaces).")
+            try:
+                data = inspect_fmu_path(rest[0])
+            except FmuInspectError as exc:
+                raise CommandError(str(exc)) from exc
+            return json.dumps(data, indent=2, sort_keys=True, default=str)
+
+        if sub == "bind":
+            if not rest:
+                raise CommandError("fmu bind requires <ref> [from=<path>].")
+            ref = rest[0]
+            kwargs = self._parse_kw_pairs(rest[1:])
+            obj = self._resolve_ref(ref)
+            if not isinstance(obj, ElementaryInstance):
+                raise CommandError("fmu bind target must resolve to an elementary instance.")
+            lib = self._library_pin_seed_for_type_key(obj.type_key)
+            from_raw = kwargs.get("from")
+            try:
+                if from_raw is not None and str(from_raw).strip() != "":
+                    bind_elementary_from_fmu_path(
+                        obj,
+                        str(from_raw).strip(),
+                        library_pin_seed=lib,
+                        set_path=True,
+                    )
+                else:
+                    cur = obj.get("fmu.path")
+                    if cur is None or str(cur).strip() == "":
+                        raise CommandError("Target has no fmu.path; pass from=<path> to the FMU file.")
+                    data = inspect_fmu_path(str(cur).strip())
+                    bind_fmu_inspection_to_elementary(obj, data, library_pin_seed=lib, path_override=None)
+            except FmuInspectError as exc:
+                raise CommandError(str(exc)) from exc
+            except FmuBindError as exc:
+                raise CommandError(str(exc)) from exc
+            return "ok"
+
+        if sub == "reload":
+            if not rest:
+                raise CommandError("fmu reload requires <ref> [path=<newFmuPath>].")
+            ref = rest[0]
+            kwargs = self._parse_kw_pairs(rest[1:])
+            obj = self._resolve_ref(ref)
+            if not isinstance(obj, ElementaryInstance):
+                raise CommandError("fmu reload target must resolve to an elementary instance.")
+            pnew = kwargs.get("path")
+            if pnew is not None and str(pnew).strip() != "":
+                self._set_attr(obj, "fmu.path", str(pnew).strip())
+            try:
+                cur = obj.get("fmu.path")
+            except KeyError as exc:
+                raise CommandError("Target has no fmu subtree.") from exc
+            if cur is None or str(cur).strip() == "":
+                raise CommandError("No fmu.path after reload; set path=<…> on the command line.")
+            lib = self._library_pin_seed_for_type_key(obj.type_key)
+            try:
+                data = inspect_fmu_path(str(cur).strip())
+                bind_fmu_inspection_to_elementary(obj, data, library_pin_seed=lib, path_override=None)
+            except FmuInspectError as exc:
+                raise CommandError(str(exc)) from exc
+            except FmuBindError as exc:
+                raise CommandError(str(exc)) from exc
+            return "ok"
+
+        raise CommandError(f"Unknown fmu subcommand '{sub}' (use inspect, bind, reload).")
 
     # ------------------------ Parsing / resolution helpers --------------------
 
@@ -838,6 +1143,9 @@ class MinimalController:
         return out
 
     def _set_attr(self, obj: Any, attr: str, value: Any) -> None:
+        if isinstance(obj, VariableMappingEntry) and attr == "mapped_signal":
+            self.model.set_variable_mapped_signal(obj.name, None if value in ("None", "", None) else str(value))
+            return
         try:
             obj.set(attr, value)
             return
@@ -849,6 +1157,8 @@ class MinimalController:
         raise CommandError(f"Attribute '{attr}' not found on target.")
 
     def _get_attr(self, obj: Any, attr: str) -> Any:
+        if isinstance(obj, VariableMappingEntry) and attr == "mapped_signal":
+            return self.model.variable_mapped_signal(obj.name)
         try:
             return obj.get(attr)
         except KeyError:
@@ -860,11 +1170,83 @@ class MinimalController:
     def _parse_bool(self, value: str) -> bool:
         return str(value).strip().lower() in {"1", "true", "yes", "on"}
 
+    def _optional_float_kw(self, kwargs: dict[str, str], key: str) -> float | None:
+        if key not in kwargs:
+            return None
+        raw = kwargs[key]
+        if raw is None or str(raw).strip() == "":
+            return None
+        v = self._parse_value(str(raw))
+        if isinstance(v, bool):
+            raise CommandError(f"{key} must be numeric.")
+        if isinstance(v, (int, float)):
+            return float(v)
+        raise CommandError(f"{key} must be numeric.")
+
+    def _parse_fmu_ports_kw(self, kwargs: dict[str, str]) -> list[dict[str, Any]] | None:
+        if "fmu_ports" not in kwargs:
+            return None
+        raw = kwargs["fmu_ports"]
+        if raw is None or str(raw).strip() == "":
+            return None
+        try:
+            parsed = ast.literal_eval(str(raw))
+        except (ValueError, SyntaxError) as exc:
+            raise CommandError(f"fmu_ports must be a Python literal list: {exc}") from exc
+        if not isinstance(parsed, list):
+            raise CommandError("fmu_ports must be a list.")
+        out: list[dict[str, Any]] = []
+        for i, item in enumerate(parsed):
+            if not isinstance(item, dict):
+                raise CommandError(f"fmu_ports[{i}] must be a dict.")
+            out.append(dict(item))
+        return out
+
+    def _parse_fmu_variables_kw(self, kwargs: dict[str, str]) -> list[dict[str, Any]] | None:
+        if "fmu_variables" not in kwargs:
+            return None
+        raw = kwargs["fmu_variables"]
+        if raw is None or str(raw).strip() == "":
+            return None
+        try:
+            parsed = ast.literal_eval(str(raw))
+        except (ValueError, SyntaxError) as exc:
+            raise CommandError(f"fmu_variables must be a Python literal list: {exc}") from exc
+        if not isinstance(parsed, list):
+            raise CommandError("fmu_variables must be a list.")
+        out: list[dict[str, Any]] = []
+        for i, item in enumerate(parsed):
+            if not isinstance(item, dict):
+                raise CommandError(f"fmu_variables[{i}] must be a dict.")
+            out.append(dict(item))
+        return out
+
+    def _parse_fmu_extra_meta_kw(self, kwargs: dict[str, str]) -> dict[str, Any] | None:
+        if "fmu_extra_meta" not in kwargs:
+            return None
+        raw = kwargs["fmu_extra_meta"]
+        if raw is None or str(raw).strip() == "":
+            return None
+        try:
+            parsed = ast.literal_eval(str(raw))
+        except (ValueError, SyntaxError) as exc:
+            raise CommandError(f"fmu_extra_meta must be a Python literal dict: {exc}") from exc
+        if not isinstance(parsed, dict):
+            raise CommandError("fmu_extra_meta must be a dict.")
+        return dict(parsed)
+
     def _parse_value(self, raw: str) -> Any:
         text = raw.strip()
         lower = text.lower()
         if lower in {"true", "false"}:
             return lower == "true"
+        if text.startswith("[") and text.endswith("]"):
+            import ast
+
+            try:
+                return ast.literal_eval(text)
+            except (ValueError, SyntaxError):
+                pass
         try:
             if "." in text:
                 return float(text)

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<PluginDescription>
+  <Name>FmuRuntime</Name>
+  <Version>0.1.0</Version>
+  <Module>fmu_runtime</Module>
+  <Class>FmuRuntimePlugin</Class>
+  <Capabilities>
+    <Capability>runtime:fmu</Capability>
+  </Capabilities>
+</PluginDescription>

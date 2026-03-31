@@ -41,6 +41,23 @@ Each attribute may carry the following properties:
    * - ``writable``
      - Attribute is modifiable by user operations.
 
+Hierarchical attribute paths (dict-valued attributes)
+-----------------------------------------------------
+
+Many attributes are scalars, but some attributes store mapping trees (notably ``pin``).
+
+For those attributes the CCP **SHALL** support multi-segment paths:
+
+* ``set <objectRef>.<attr.path> <value>``
+* ``get <objectRef>.<attr.path>``
+
+Where ``<objectRef>`` is the first dotted segment (as resolved by the controller’s path/reference rules),
+and ``<attr.path>`` is the remainder joined with ``.``.
+
+Path parsing uses the escaping rules documented in ``attribute_path_semantics.rst`` (``\\.``, ``\\\\``).
+
+``lsattr`` lists flattened rows for dict-valued attributes, for example ``pin.in.direction``, ``pin.out.y``.
+
 Top-Level Command Set
 ---------------------
 
@@ -161,9 +178,12 @@ Minimum supported construction types:
    * - ``SignalFile``
      - Register/load a signal file
      - ``new SignalFile "<path>" [name="<name>"] [fileType="<type>"]``
-   * - ``FMUModule``
-     - Create an FMU-backed node
-     - ``new FMUModule "<fmuPath>" <x> <y> <size> [refName="<ref>"]``
+   * - ``FmuInstance``
+     - Create an FMU-backed elementary (default library ``type_key``)
+     - ``new FmuInstance <name> [<x> <y> [<size>]] fmu_path="…" [fmi_version=… fmu_type=… fmu_ports=… fmu_variables=… fmu_extra_meta=…]``
+   * - ``Elementary`` (with ``fmu_path``)
+     - FMU-backed block with explicit ``type_key``
+     - ``new Elementary <name> [<x> <y> [<size>]] type_key=… fmu_path="…" [same FMU kwargs as ``FmuInstance``]``
    * - ``Module``
      - Create a submodule
      - ``new Module "<modelDescriptionPath>" <x> <y> <size> [refName="<ref>"]``
@@ -185,6 +205,25 @@ For ``Variable`` and ``BasicOperator``, optional trailing numerics set ``positio
 - ``new BasicOperator <opSymbol> <x> <y> <size>`` sets placement and square size.
 
 Scripts loaded into the model are the source of truth for layout: diagram hosts must place nodes from the instances' ``x`` / ``y`` (and related attributes), not from name-based or host-local position tables.
+
+FMU blocks and attributes
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+There is no abbreviated form ``new FMU "<path>"``; use ``new FmuInstance`` or ``new Elementary`` with ``fmu_path=`` as above.
+
+FMU-backed elementaries store a subtree under ``fmu.*`` (path, guid, ``variables``, ``extra_meta``, …) and diagram connectivity under ``pin.*``. The generic commands ``get``, ``set``, and ``lsattr`` support multi-segment paths on mapping-valued attributes (for example ``get <ref>.fmu.path``, ``set <ref>.fmu.model_identifier Mini``, ``lsattr <ref>`` lists flattened rows such as ``fmu.path`` and ``pin.u.direction``).
+
+**List-valued ``fmu.variables``:** hierarchical ``get`` / ``set`` only traverses mappings, not list indices. Refresh the variable catalog from a ``.fmu`` file using ``fmu bind`` or ``fmu reload`` (below), or replace the entire list in one assignment using a safely parsed literal (same rules as ``fmu_variables=…`` on ``new``).
+
+**No separate ``fmu set`` verb:** use ``set <ref>.fmu.<segment>…`` for scalar or nested map fields.
+
+**Dedicated FMU commands** (optional helpers; not a substitute for ``get``/``set`` where those suffice):
+
+- ``fmu inspect "<pathTo.fmu>"`` — parse FMI 2.0 ``modelDescription.xml`` inside the archive and print JSON (guid, model identifier, scalar variables, default experiment hints, …). FMI 3 is rejected until supported.
+- ``fmu bind <ref> [from="<pathTo.fmu>"]`` — re-read an FMU and merge metadata into the elementary's ``fmu`` subtree and rebuild ``pin`` from input/output variables (library pin seed from ``type_key`` is preserved first, then FMU ports override). If ``from=`` is omitted, the file at the current ``fmu.path`` is used. With ``from=``, ``fmu.path`` is updated to that file's resolved path.
+- ``fmu reload <ref> [path="<newPath>"]`` — optionally set ``fmu.path``, then run the same merge as ``fmu bind`` without changing the path when ``path=`` is omitted.
+
+These commands are not recorded on the undo stack (same category as a complex external edit).
 
 ``set`` Forms
 -------------
@@ -487,7 +526,7 @@ B) Construction Type Summary
      - Signal source
      - Maps to variables
      - Yes (file)
-   * - ``FMUModule``
+   * - ``FmuInstance`` / ``Elementary`` (FMU)
      - Node
      - Yes
      - Yes (``.fmu``)

@@ -19,6 +19,7 @@ class _VariableNameRow(_Base):
 
     name: Mapped[str] = mapped_column(primary_key=True)
     instance_count: Mapped[int] = mapped_column(nullable=False)
+    mapped_signal: Mapped[str] = mapped_column(nullable=False, default="None")
 
 
 class VariableNameRegistry:
@@ -41,7 +42,7 @@ class VariableNameRegistry:
         with self._session_factory() as session:
             row = session.get(_VariableNameRow, key)
             if row is None:
-                session.add(_VariableNameRow(name=key, instance_count=1))
+                session.add(_VariableNameRow(name=key, instance_count=1, mapped_signal="None"))
             else:
                 row.instance_count += 1
             session.commit()
@@ -67,10 +68,33 @@ class VariableNameRegistry:
         self.decrement(old_k)
         self.increment(new_k)
 
-    def rows_ordered_by_name(self) -> list[tuple[str, int]]:
+    def rows_ordered_by_name(self) -> list[tuple[str, int, str]]:
         with self._session_factory() as session:
             stmt = select(_VariableNameRow).order_by(_VariableNameRow.name)
-            return [(r.name, r.instance_count) for r in session.scalars(stmt)]
+            return [(r.name, r.instance_count, r.mapped_signal) for r in session.scalars(stmt)]
+
+    def mapped_signal_for_name(self, name: str) -> str:
+        key = name.strip()
+        if not key:
+            return "None"
+        with self._session_factory() as session:
+            row = session.get(_VariableNameRow, key)
+            if row is None:
+                return "None"
+            return row.mapped_signal or "None"
+
+    def set_mapped_signal_for_name(self, name: str, signal_name: str | None) -> None:
+        key = name.strip()
+        if not key:
+            return
+        mapped = "None" if signal_name is None or str(signal_name).strip() in {"", "None"} else str(signal_name).strip()
+        with self._session_factory() as session:
+            row = session.get(_VariableNameRow, key)
+            if row is None:
+                session.add(_VariableNameRow(name=key, instance_count=0, mapped_signal=mapped))
+            else:
+                row.mapped_signal = mapped
+            session.commit()
 
     def count_for_name(self, name: str) -> int:
         key = name.strip()

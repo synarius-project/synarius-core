@@ -5,7 +5,7 @@
 Plugin API (minimal v0.1)
 ================================================================================
 
-:Status: Draft (specification only; runtime loading may follow in later releases)
+:Status: Draft (specification + reference host implementation in ``synarius_core.plugins``)
 :Version: 0.1
 
 --------------------------------------------------------------------------------
@@ -219,6 +219,7 @@ Optional additional tags (may be used when hosts are ready):
 
 * ``frontend:fmfl``
 * ``transform:basic``
+* ``compile:post-dataflow`` — informative tag for passes that run after the core dataflow compile step (host may still use ``stage`` on pass objects; see ``PluginRegistry.iter_compile_passes``).
 
 Unknown capabilities should be **ignored** or logged without breaking load of
 other plugins.

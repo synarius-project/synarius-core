@@ -75,9 +75,28 @@ def _block_origin_scene(inst: object) -> tuple[float, float]:
     return (float(inst.x) * _UI_SCALE, float(inst.y) * _UI_SCALE)
 
 
+def _pin_layout_offset_y_model(inst: object, pin_name: str) -> float | None:
+    get = getattr(inst, "get", None)
+    if not callable(get):
+        return None
+    try:
+        y = get(f"pin.{pin_name}.y")
+    except KeyError:
+        return None
+    if y is None:
+        return None
+    try:
+        return float(y)
+    except (TypeError, ValueError):
+        return None
+
+
 def variable_pin_diagram_xy(inst: object, pin_name: str) -> tuple[float, float]:
     bx, by = _block_origin_scene(inst)
     cy = _VARIABLE_HEIGHT / 2.0
+    dy = _pin_layout_offset_y_model(inst, pin_name)
+    if dy is not None:
+        cy += dy * _UI_SCALE
     w = _variable_block_width_scene(inst)
     if pin_name == "out":
         return (
@@ -94,20 +113,22 @@ def variable_pin_diagram_xy(inst: object, pin_name: str) -> tuple[float, float]:
 
 def operator_pin_diagram_xy(inst: object, pin_name: str) -> tuple[float, float]:
     bx, by = _block_origin_scene(inst)
+    dy = _pin_layout_offset_y_model(inst, pin_name)
+    dy_scene = 0.0 if dy is None else dy * _UI_SCALE
     if pin_name == "out":
-        oy = 1.5 * _MODULE
+        oy = 1.5 * _MODULE + dy_scene
         return (
             bx + _OPERATOR_SIZE + _PIN_TRI_DEPTH + _PIN_LINE_LENGTH,
             by + oy,
         )
     if pin_name == "in1":
-        iy = 0.5 * _MODULE
+        iy = 0.5 * _MODULE + dy_scene
         return (
             bx - _PIN_LINE_LENGTH - _PIN_TRI_DEPTH,
             by + iy,
         )
     if pin_name == "in2":
-        iy = 2.5 * _MODULE
+        iy = 2.5 * _MODULE + dy_scene
         return (
             bx - _PIN_LINE_LENGTH - _PIN_TRI_DEPTH,
             by + iy,
