@@ -51,7 +51,7 @@ class ConnectorRoutingTest(unittest.TestCase):
         self.assertEqual(segs[1][5], "y")
         x1, y1, x2, y2, _, _ = segs[0]
         self.assertAlmostEqual(x1, x2)
-        mx, my = (x1 + x2) * 0.5, (y1 + y2) * 0.5
+        mx = (x1 + x2) * 0.5
         self.assertAlmostEqual(mx, 100.0)
 
     def test_connector_model_polyline_xy(self) -> None:

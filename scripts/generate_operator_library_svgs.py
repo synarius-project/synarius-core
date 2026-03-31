@@ -70,7 +70,6 @@ def div_content(S: float, outline_w: float) -> str:
     w = h = S
     cx = w * 0.5
     cy = h * 0.5
-    arm = min(w, h) * 0.36
     inset = min(w, h) * 0.18
     bar = max(2.2, min(w, h) * 0.09)
     t = bar * 0.5

@@ -4,11 +4,10 @@ import ast
 import json
 import shlex
 from datetime import datetime
+from operator import attrgetter
 from pathlib import Path
 from typing import Any
 from uuid import UUID
-
-UndoRedoPair = tuple[list[str], list[str]]
 
 from synarius_core.library import LibraryCatalog
 from synarius_core.plugins.registry import PluginRegistry
@@ -34,6 +33,8 @@ from synarius_core.model.connector_routing import bends_absolute_to_relative
 from synarius_core.model.diagram_geometry import instance_source_pin_diagram_xy
 from synarius_core.fmu.bind import FmuBindError, bind_elementary_from_fmu_path, bind_fmu_inspection_to_elementary
 from synarius_core.fmu.inspection import FmuInspectError, inspect_fmu_path
+
+UndoRedoPair = tuple[list[str], list[str]]
 
 
 class CommandError(ValueError):
@@ -321,8 +322,7 @@ class MinimalController:
             if not items:
                 return None
             if attr == "position" and len(tail) >= 2:
-                dx = float(tail[0])
-                dy = float(tail[1])
+                _ = float(tail[0]), float(tail[1])
                 undo_cmds: list[str] = []
                 for item in items:
                     if not isinstance(item, LocatableInstance):
@@ -360,7 +360,7 @@ class MinimalController:
             if len(rest) < 2:
                 return None
             attr = rest[0]
-            value = self._parse_value(" ".join(rest[1:]))
+            _ = self._parse_value(" ".join(rest[1:]))
             undo_cmds = []
             for item in self.selection:
                 try:
@@ -373,7 +373,7 @@ class MinimalController:
             return (undo_cmds, redo)
 
         target_expr = args[0]
-        value = self._parse_value(" ".join(args[1:]))
+        _ = self._parse_value(" ".join(args[1:]))
         if "." in target_expr:
             path, attr = self._cli_ref_and_attrpath(target_expr)
             target = self._resolve_path(path)
@@ -968,7 +968,7 @@ class MinimalController:
             else:
                 other.append(obj)
 
-        key = lambda o: o.hash_name
+        key = attrgetter("hash_name")
         connectors.sort(key=key)
         operators.sort(key=key)
         variables.sort(key=key)
