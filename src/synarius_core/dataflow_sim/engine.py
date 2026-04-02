@@ -50,6 +50,25 @@ except ImportError as exc:
         pass
     # endregion
     raise
+# region agent log
+try:
+    _payload = {
+        "sessionId": "ccbe80",
+        "runId": "startup-import",
+        "hypothesisId": "H_IMPORT_VERSION_SKEW",
+        "location": "engine.py:module_import",
+        "message": "compiler_import_ok",
+        "data": {
+            "engine_file": str(__file__),
+            "has_scalar_ws_read_symbol": bool("scalar_ws_read" in globals()),
+        },
+        "timestamp": int(time.time() * 1000),
+    }
+    with Path(r"h:\Programmierung\Synarius\debug-ccbe80.log").open("a", encoding="utf-8") as _df:
+        _df.write(json.dumps(_payload, ensure_ascii=False) + "\n")
+except Exception:
+    pass
+# endregion
 from .context import SimulationContext
 from .stimulation import stimulation_value
 
