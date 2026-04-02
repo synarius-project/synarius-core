@@ -26,10 +26,19 @@ synarius-core-cli = "synarius_core.cli.minimal_cli:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
+include-package-data = true
 
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["synarius_core*"]
+
+# Bundled FmuRuntime lives next to ``registry.py`` under ``synarius_core/plugins/`` so wheels
+# and PyInstaller include it (repo-root ``Plugins/`` is not part of the importable package tree).
+[tool.setuptools.package-data]
+"synarius_core" = [
+  "plugins/FmuRuntime/pluginDescription.xml",
+  "plugins/FmuRuntime/fmu_runtime.py",
+]
 
 [project.optional-dependencies]
 dev = []

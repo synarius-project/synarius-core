@@ -46,7 +46,7 @@ def _bouncing_ball_fmu_path() -> Path:
 
 
 def _bundled_plugins_root() -> Path:
-    return Path(__file__).resolve().parents[1] / "Plugins"
+    return Path(__file__).resolve().parents[1] / "src" / "synarius_core" / "plugins"
 
 
 def _fmu_runtime_diagnostics(ctx: object) -> list[str]:

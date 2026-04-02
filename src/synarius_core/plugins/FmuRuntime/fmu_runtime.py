@@ -7,25 +7,83 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID
 
+from synarius_core.dataflow_sim.compiler import scalar_ws_read
+
+def _resolve_fmu_archive_path(raw_str: str, ctx: Any) -> Path | None:
+    """Resolve ``fmu.path`` for :func:`init_fmu`.
+
+    Order: absolute path as given; then ``model_directory`` (from last ``load``); then each directory
+    from :func:`os.getcwd` up to the filesystem root. The upward crawl fixes Studio sessions where no
+    ``load`` ran but the working directory is a repo / project subtree containing the ``.fmu``.
+    """
+    raw = Path(str(raw_str or "").strip()).expanduser()
+    if not raw.parts or raw == Path("."):
+        return None
+    if raw.is_absolute():
+        try:
+            return raw.resolve() if raw.is_file() else None
+        except OSError:
+            return None
+    bases: list[Path] = []
+    md = ctx.options.get("model_directory")
+    if md is not None and str(md).strip():
+        bases.append(Path(str(md)))
+    cur = Path.cwd()
+    for _ in range(64):
+        try:
+            br = cur.resolve()
+        except OSError:
+            br = cur
+        bases.append(br)
+        if br.parent == br:
+            break
+        cur = br.parent
+    rel_variants = [raw]
+    if raw != Path(raw.name):
+        rel_variants.append(Path(raw.name))
+    seen: set[Path] = set()
+    for base in bases:
+        try:
+            br = base.expanduser().resolve()
+        except OSError:
+            br = base.expanduser()
+        if br in seen:
+            continue
+        seen.add(br)
+        for rel in rel_variants:
+            try:
+                cand = (br / rel).resolve()
+            except OSError:
+                cand = br / rel
+            try:
+                if cand.is_file():
+                    return cand
+            except OSError:
+                continue
+    return None
+
 
 class _Bundle:
     """Holds one FMU slave instance (avoid ``@dataclass``: dynamic plugin modules may lack ``sys.modules``)."""
 
-    __slots__ = ("slave", "unzip_dir", "input_map", "output_vr", "node_label")
+    __slots__ = ("slave", "unzip_dir", "input_map", "output_map", "node_label", "start_time", "step_failed")
 
     def __init__(
         self,
         slave: Any,
         unzip_dir: Path,
         input_map: list[tuple[str, int]],
-        output_vr: int | None,
+        output_map: list[tuple[str, int]],
         node_label: str,
+        start_time: float,
     ) -> None:
         self.slave = slave
         self.unzip_dir = unzip_dir
         self.input_map = input_map
-        self.output_vr = output_vr
+        self.output_map = output_map
         self.node_label = node_label
+        self.start_time = float(start_time)
+        self.step_failed = False
 
 
 class FmuRuntimePlugin:
@@ -65,9 +123,13 @@ class FmuRuntimePlugin:
                 continue
             if not _node_has_fmu_path(node):
                 continue
-            path = Path(str(node.get("fmu.path"))).expanduser()
-            if not path.is_file():
-                ctx.diagnostics.append(f"FMU runtime: file missing for node {node.name!r}: {path}")
+            raw_path = str(node.get("fmu.path") or "")
+            path = _resolve_fmu_archive_path(raw_path, ctx)
+            if path is None:
+                ctx.diagnostics.append(
+                    f"FMU runtime: file missing for node {node.name!r}: {raw_path!r} "
+                    f"(tried model_directory={ctx.options.get('model_directory')!r}, cwd ancestors, basename; cwd={Path.cwd()!s})"
+                )
                 continue
             try:
                 model_description = read_model_description(str(path))
@@ -113,40 +175,58 @@ class FmuRuntimePlugin:
                 shutil.rmtree(unzip_dir, ignore_errors=True)
                 continue
 
-            input_map, output_vr = _resolve_ios(node, model_description, ctx)
+            input_map, output_map = _resolve_ios(node, model_description, ctx)
             self._bundles[uid] = _Bundle(
                 slave=slave,
                 unzip_dir=unzip_dir,
                 input_map=input_map,
-                output_vr=output_vr,
+                output_map=output_map,
                 node_label=node.name,
+                start_time=float(start),
             )
 
     def step_fmu(self, ctx: Any, node_id: UUID) -> None:
         b = self._bundles.get(node_id)
         if b is None or ctx.scalar_workspace is None:
             return
+        if b.step_failed:
+            return
         compiled = ctx.artifacts.get("dataflow")
         if compiled is None:
             return
         inc = compiled.incoming.get(node_id, {})
+        ws = ctx.scalar_workspace
+        nb = compiled.node_by_id
         try:
             vrs: list[int] = []
             vals: list[float] = []
             for pin_name, vr in b.input_map:
-                src_id = inc.get(pin_name)
-                v = 0.0 if src_id is None else float(ctx.scalar_workspace.get(src_id, 0.0))
+                raw = inc.get(pin_name)
+                # Keep FMU defaults/start values for unconnected inputs (especially parameters like g/e).
+                if raw is None:
+                    continue
+                v = scalar_ws_read(ws, raw, node_by_id=nb)
                 vrs.append(vr)
                 vals.append(v)
             if vrs:
                 b.slave.setReal(vrs, vals)
             h = float(ctx.options.get("communication_step_size") or 0.02)
-            b.slave.doStep(currentCommunicationPoint=ctx.time_s, communicationStepSize=h)
-            if b.output_vr is not None:
-                y = b.slave.getReal([b.output_vr])[0]
-                ctx.scalar_workspace[node_id] = float(y)
+            # Engine advances ``ctx.time_s`` before stepping nodes; FMU doStep needs the *current* point
+            # of the interval, i.e. ``t_prev``, not ``t_next``.
+            ccp = max(float(b.start_time), float(ctx.time_s) - h)
+            b.slave.doStep(currentCommunicationPoint=ccp, communicationStepSize=h)
+            if b.output_map:
+                vrs_out = [vr for _pn, vr in b.output_map]
+                ys = b.slave.getReal(vrs_out)
+                for (_pname, _vr), y in zip(b.output_map, ys, strict=True):
+                    ws[(node_id, _pname)] = float(y)
+                ws[node_id] = float(ys[0])
         except Exception as exc:  # noqa: BLE001
             ctx.diagnostics.append(f"FMU runtime: step failed for {b.node_label!r}: {exc}")
+            b.step_failed = True
+            ctx.diagnostics.append(
+                f"FMU runtime: disabled further steps for {b.node_label!r} after first step failure."
+            )
 
     def shutdown_fmu(self, ctx: Any) -> None:
         _ = ctx
@@ -187,7 +267,9 @@ def _float_attr(node: Any, path: str, default: float) -> float:
         return default
 
 
-def _resolve_ios(node: Any, model_description: Any, ctx: Any) -> tuple[list[tuple[str, int]], int | None]:
+def _resolve_ios(
+    node: Any, model_description: Any, ctx: Any
+) -> tuple[list[tuple[str, int]], list[tuple[str, int]]]:
     try:
         pmap = node.get("pin")
     except Exception:
@@ -196,6 +278,17 @@ def _resolve_ios(node: Any, model_description: Any, ctx: Any) -> tuple[list[tupl
         pmap = {}
     md_vars = {v.name: v for v in model_description.modelVariables}
 
+    out_names: set[str] = set()
+    in_names: set[str] = set()
+    try:
+        from synarius_core.model import ElementaryInstance
+
+        if isinstance(node, ElementaryInstance):
+            out_names = {p.name for p in node.out_pins}
+            in_names = {p.name for p in node.in_pins}
+    except Exception:
+        pass
+
     inputs: list[tuple[str, int]] = []
     outputs: list[tuple[str, int]] = []
 
@@ -203,34 +296,64 @@ def _resolve_ios(node: Any, model_description: Any, ctx: Any) -> tuple[list[tupl
         meta = pmap.get(pin_name)
         if not isinstance(meta, dict):
             continue
-        direction = str(meta.get("direction") or "").upper()
-        is_out = direction == "OUT"
+        pin_s = str(pin_name)
+        vm = _fmu_var_row(node, pin_s)
+        mv = md_vars.get(pin_s)
+
+        if pin_s in out_names:
+            is_out = True
+        elif pin_s in in_names:
+            is_out = False
+        else:
+            direction = str(meta.get("direction") or "").upper()
+            if direction == "OUT":
+                is_out = True
+            elif direction == "IN":
+                is_out = False
+            else:
+                caus_v = str((vm or {}).get("causality") or "").lower()
+                caus_md = str(getattr(mv, "causality", None) or "").strip().lower() if mv is not None else ""
+                if caus_v == "output" or caus_md == "output":
+                    is_out = True
+                elif caus_v in ("input", "parameter") or caus_md in ("input", "parameter", "independent"):
+                    is_out = False
+                elif caus_v == "local" or caus_md == "local":
+                    # Modelica state / internal reals exposed as diagram pins (e.g. BouncingBall h, v).
+                    is_out = True
+                else:
+                    is_out = False
+
         vr_raw = meta.get("value_reference")
-        if vr_raw is None:
-            vm = _fmu_var_row(node, str(pin_name))
-            if vm is not None and vm.get("value_reference") is not None:
-                try:
-                    vr_raw = int(vm["value_reference"])
-                except (TypeError, ValueError):
-                    vr_raw = None
-        if vr_raw is None:
-            mv = md_vars.get(str(pin_name))
-            if mv is not None:
-                vr_raw = mv.valueReference
+        if vr_raw is None and vm is not None and vm.get("value_reference") is not None:
+            try:
+                vr_raw = int(vm["value_reference"])
+            except (TypeError, ValueError):
+                vr_raw = None
+        if vr_raw is None and mv is not None:
+            vr_raw = mv.valueReference
         if vr_raw is None:
             ctx.diagnostics.append(
                 f"FMU runtime: pin {pin_name!r} on {node.name!r} has no value reference; skipped."
             )
             continue
         vr = int(vr_raw)
+        caus_v = str((vm or {}).get("causality") or "").lower()
+        caus_md = str(getattr(mv, "causality", None) or "").strip().lower() if mv is not None else ""
+        # FMI parameters are static/tunable model parameters; do not drive them each simulation step.
+        # This avoids overwriting FMU defaults (e.g. BouncingBall g/e) via accidental diagram wiring.
+        if caus_v == "parameter" or caus_md == "parameter":
+            continue
         if is_out:
-            outputs.append((str(pin_name), vr))
+            outputs.append((pin_s, vr))
         else:
-            inputs.append((str(pin_name), vr))
+            inputs.append((pin_s, vr))
 
     outputs.sort(key=lambda x: x[0])
-    primary_vr = outputs[0][1] if outputs else None
-    return inputs, primary_vr
+    if not outputs and pmap:
+        ctx.diagnostics.append(
+            f"FMU runtime: {node.name!r} resolved zero output pins; downstream wires will stay at zero."
+        )
+    return inputs, outputs
 
 
 def _fmu_var_row(node: Any, pin_name: str) -> dict[str, Any] | None:

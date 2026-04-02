@@ -1,12 +1,13 @@
 """Step-wise evaluation of a compiled dataflow (variables, operators, optional FMU).
 
 FMU diagram nodes (non-empty ``fmu.path``) are stepped when a plugin registers ``runtime:fmu``
-(see bundled ``Plugins/FmuRuntime`` + optional ``synarius-core[fmu]``). Otherwise their workspace
+(see bundled ``synarius_core/plugins/FmuRuntime`` + optional ``synarius-core[fmu]``). Otherwise their workspace
 scalar stays at zero like other generic elementaries.
 """
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -14,7 +15,12 @@ from synarius_core.model import BasicOperator, BasicOperatorType, ElementaryInst
 
 from synarius_core.plugins.registry import PluginRegistry, run_plugin_compile_passes
 
-from .compiler import CompiledDataflow, DataflowCompilePass, elementary_has_fmu_path
+from .compiler import (
+    CompiledDataflow,
+    DataflowCompilePass,
+    elementary_has_fmu_path,
+    scalar_ws_read,
+)
 from .context import SimulationContext
 from .stimulation import stimulation_value
 
@@ -64,10 +70,18 @@ class SimpleRunEngine:
         *,
         dt_s: float = 0.02,
         plugin_registry: PluginRegistry | None = None,
+        model_directory: Path | str | None = None,
     ) -> None:
         self._model = model
         self._dt_s = float(dt_s)
         self._plugin_registry = plugin_registry
+        self._model_directory: Path | None = None
+        if model_directory is not None and str(model_directory).strip() != "":
+            _p = Path(model_directory).expanduser()
+            try:
+                self._model_directory = _p.resolve()
+            except OSError:
+                self._model_directory = _p
         self._ctx = SimulationContext(model=model)
         self._compile_pass = DataflowCompilePass()
         self._compiled: CompiledDataflow | None = None
@@ -98,7 +112,7 @@ class SimpleRunEngine:
         self._ctx.time_s = 0.0
         self._workspace.clear()
         self._initial_snapshot.clear()
-        self._ctx.options["communication_step_size"] = self._dt_s
+        self._sync_ctx_options()
         self._ctx.scalar_workspace = self._workspace
         if self._compiled is None:
             return
@@ -123,12 +137,19 @@ class SimpleRunEngine:
                     fn(self._ctx)
                     self._runtime_fmu_session = True
 
+    def _sync_ctx_options(self) -> None:
+        self._ctx.options["communication_step_size"] = self._dt_s
+        if self._model_directory is not None:
+            self._ctx.options["model_directory"] = str(self._model_directory)
+        else:
+            self._ctx.options.pop("model_directory", None)
+
     def reset(self) -> None:
         """Stop semantics: time zero and workspace back to snapshot from last ``init``."""
         self._ctx.time_s = 0.0
         self._workspace = dict(self._initial_snapshot)
         self._ctx.scalar_workspace = self._workspace
-        self._ctx.options["communication_step_size"] = self._dt_s
+        self._sync_ctx_options()
         if self._plugin_registry is not None and self._compiled is not None:
             lp = self._plugin_registry.plugin_for_capability("runtime:fmu")
             if lp is not None:
@@ -148,7 +169,7 @@ class SimpleRunEngine:
         t = self._ctx.time_s
         incoming = self._compiled.incoming
         stimmed: set[UUID] = set()
-        self._ctx.options["communication_step_size"] = self._dt_s
+        self._sync_ctx_options()
         self._ctx.scalar_workspace = self._workspace
 
         for uid, node in self._compiled.node_by_id.items():
@@ -167,16 +188,18 @@ class SimpleRunEngine:
                 continue
             if isinstance(node, BasicOperator):
                 pins = incoming.get(uid, {})
-                a = self._workspace.get(pins.get("in1"), 0.0)
-                b = self._workspace.get(pins.get("in2"), 0.0)
+                nb = self._compiled.node_by_id
+                a = scalar_ws_read(self._workspace, pins.get("in1"), node_by_id=nb)
+                b = scalar_ws_read(self._workspace, pins.get("in2"), node_by_id=nb)
                 self._workspace[uid] = _eval_op(node, a, b)
             elif isinstance(node, Variable):
                 if uid in stimmed:
                     continue
                 pins = incoming.get(uid, {})
                 if "in" in pins:
-                    src = pins["in"]
-                    self._workspace[uid] = self._workspace.get(src, 0.0)
+                    raw = pins["in"]
+                    _val = scalar_ws_read(self._workspace, raw, node_by_id=self._compiled.node_by_id)
+                    self._workspace[uid] = _val
 
         self._maybe_invoke_runtime_fmu_step_legacy()
         self._apply_workspace_to_variables()

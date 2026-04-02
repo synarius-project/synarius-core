@@ -32,6 +32,21 @@ def _discover_default_plugin_container_dirs() -> list[Path]:
     return found
 
 
+def _src_adjacent_plugins_dir() -> Path | None:
+    """``synarius-core/Plugins`` sibling of ``src/`` (editable / source-tree installs).
+
+    Walking upward from ``site-packages`` never reaches the repo ``Plugins`` folder; without this,
+    ``runtime:fmu`` is missing and FMU blocks never step (outputs stay at zero).
+    """
+    here = Path(__file__).resolve()
+    try:
+        src_dir = here.parents[2]
+    except IndexError:
+        return None
+    cand = (src_dir.parent / "Plugins").resolve()
+    return cand if cand.is_dir() else None
+
+
 def enumerate_plugin_package_dirs(
     *,
     extra_plugin_containers: Iterable[Path] | None = None,
@@ -45,6 +60,27 @@ def enumerate_plugin_package_dirs(
     containers: list[Path] = []
     seen_ct: set[Path] = set()
     if scan_builtin_plugin_directories:
+        # Wheel / site-packages: bundled plugins live as subdirs of this package (e.g. FmuRuntime/)
+        # next to registry.py. ``cur / "Plugins"`` alone misses lowercase ``plugins/`` on Linux.
+        reg_pkg = Path(__file__).resolve().parent
+        if reg_pkg.is_dir():
+            try:
+                has_manifest = any(
+                    p.is_dir() and (p / "pluginDescription.xml").is_file() for p in reg_pkg.iterdir()
+                )
+            except OSError:
+                has_manifest = False
+            if has_manifest:
+                r = reg_pkg.resolve()
+                if r not in seen_ct:
+                    seen_ct.add(r)
+                    containers.append(r)
+        adj = _src_adjacent_plugins_dir()
+        if adj is not None:
+            r = adj.resolve()
+            if r not in seen_ct:
+                seen_ct.add(r)
+                containers.append(r)
         for c in _discover_default_plugin_container_dirs():
             r = c.resolve()
             if r not in seen_ct:
