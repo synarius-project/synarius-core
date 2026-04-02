@@ -7,9 +7,6 @@ scalar stays at zero like other generic elementaries.
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
-import time
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -24,51 +21,8 @@ try:
         elementary_has_fmu_path,
         scalar_ws_read,
     )
-except ImportError as exc:
-    # region agent log
-    try:
-        import importlib
-
-        _comp = importlib.import_module("synarius_core.dataflow_sim.compiler")
-        _payload = {
-            "sessionId": "ccbe80",
-            "runId": "startup-import",
-            "hypothesisId": "H_IMPORT_VERSION_SKEW",
-            "location": "engine.py:module_import",
-            "message": "compiler_import_missing_symbol",
-            "data": {
-                "compiler_file": str(getattr(_comp, "__file__", "")),
-                "has_scalar_ws_read": bool(hasattr(_comp, "scalar_ws_read")),
-                "compiler_attrs_sample": sorted([k for k in dir(_comp) if "scalar" in k or "wire" in k])[:20],
-                "exc": str(exc)[:500],
-            },
-            "timestamp": int(time.time() * 1000),
-        }
-        with Path(r"h:\Programmierung\Synarius\debug-ccbe80.log").open("a", encoding="utf-8") as _df:
-            _df.write(json.dumps(_payload, ensure_ascii=False) + "\n")
-    except Exception:
-        pass
-    # endregion
+except ImportError:
     raise
-# region agent log
-try:
-    _payload = {
-        "sessionId": "ccbe80",
-        "runId": "startup-import",
-        "hypothesisId": "H_IMPORT_VERSION_SKEW",
-        "location": "engine.py:module_import",
-        "message": "compiler_import_ok",
-        "data": {
-            "engine_file": str(__file__),
-            "has_scalar_ws_read_symbol": bool("scalar_ws_read" in globals()),
-        },
-        "timestamp": int(time.time() * 1000),
-    }
-    with Path(r"h:\Programmierung\Synarius\debug-ccbe80.log").open("a", encoding="utf-8") as _df:
-        _df.write(json.dumps(_payload, ensure_ascii=False) + "\n")
-except Exception:
-    pass
-# endregion
 from .context import SimulationContext
 from .stimulation import stimulation_value
 

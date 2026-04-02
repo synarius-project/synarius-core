@@ -4,9 +4,6 @@ from __future__ import annotations
 
 from collections import defaultdict, deque
 from dataclasses import dataclass
-import json
-from pathlib import Path
-import time
 from typing import Any, TYPE_CHECKING
 from uuid import UUID
 
@@ -47,28 +44,6 @@ def scalar_ws_read(
     if isinstance(src_node, ElementaryInstance) and elementary_has_fmu_path(src_node):
         return float(ws.get((src_id, src_pin), 0.0))
     return float(ws.get(src_id, 0.0))
-
-
-# region agent log
-try:
-    _payload = {
-        "sessionId": "ccbe80",
-        "runId": "startup-import",
-        "hypothesisId": "H_COMPILER_SYMBOL_PRESENT",
-        "location": "compiler.py:module_import",
-        "message": "compiler_loaded",
-        "data": {
-            "compiler_file": str(__file__),
-            "has_scalar_ws_read": bool("scalar_ws_read" in globals()),
-            "has_unpack_wire_ref": bool("unpack_wire_ref" in globals()),
-        },
-        "timestamp": int(time.time() * 1000),
-    }
-    with Path(r"h:\Programmierung\Synarius\debug-ccbe80.log").open("a", encoding="utf-8") as _df:
-        _df.write(json.dumps(_payload, ensure_ascii=False) + "\n")
-except Exception:
-    pass
-# endregion
 
 
 @dataclass(frozen=True)
