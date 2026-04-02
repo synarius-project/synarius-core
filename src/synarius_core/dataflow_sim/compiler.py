@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from collections import defaultdict, deque
 from dataclasses import dataclass
+import json
+from pathlib import Path
+import time
 from typing import Any, TYPE_CHECKING
 from uuid import UUID
 
@@ -15,14 +18,67 @@ if TYPE_CHECKING:
     pass
 
 
+# Compiled edge: target pin wired from (source instance id, source output pin name).
+WireRef = tuple[UUID, str]
+
+
+def unpack_wire_ref(raw: object) -> tuple[UUID, str]:
+    """Normalize a compiled incoming edge (``WireRef`` or legacy bare :class:`UUID`)."""
+    if isinstance(raw, tuple) and len(raw) >= 2:
+        u, pin = raw[0], raw[1]
+        if isinstance(u, UUID):
+            return u, str(pin or "out")
+    if isinstance(raw, UUID):
+        return raw, "out"
+    raise TypeError(f"invalid wire reference: {raw!r}")
+
+
+def scalar_ws_read(
+    ws: dict[object, float],
+    raw: object,
+    *,
+    node_by_id: dict[UUID, ElementaryInstance],
+) -> float:
+    """Read a scalar from the workspace following an incoming edge (FMU outputs use ``(id, pin)`` keys)."""
+    if raw is None:
+        return 0.0
+    src_id, src_pin = unpack_wire_ref(raw)
+    src_node = node_by_id.get(src_id)
+    if isinstance(src_node, ElementaryInstance) and elementary_has_fmu_path(src_node):
+        return float(ws.get((src_id, src_pin), 0.0))
+    return float(ws.get(src_id, 0.0))
+
+
+# region agent log
+try:
+    _payload = {
+        "sessionId": "ccbe80",
+        "runId": "startup-import",
+        "hypothesisId": "H_COMPILER_SYMBOL_PRESENT",
+        "location": "compiler.py:module_import",
+        "message": "compiler_loaded",
+        "data": {
+            "compiler_file": str(__file__),
+            "has_scalar_ws_read": bool("scalar_ws_read" in globals()),
+            "has_unpack_wire_ref": bool("unpack_wire_ref" in globals()),
+        },
+        "timestamp": int(time.time() * 1000),
+    }
+    with Path(r"h:\Programmierung\Synarius\debug-ccbe80.log").open("a", encoding="utf-8") as _df:
+        _df.write(json.dumps(_payload, ensure_ascii=False) + "\n")
+except Exception:
+    pass
+# endregion
+
+
 @dataclass(frozen=True)
 class CompiledDataflow:
     """Topological evaluation order and pin wiring for one root-level diagram."""
 
     topo_order: list[UUID]
     node_by_id: dict[UUID, ElementaryInstance]
-    """target_block_id -> target_pin -> source_block_id"""
-    incoming: dict[UUID, dict[str, UUID]]
+    """target_block_id -> target_pin -> (source_block_id, source_pin)"""
+    incoming: dict[UUID, dict[str, WireRef]]
 
 
 @dataclass(frozen=True)
@@ -159,7 +215,7 @@ def _append_fmu_compile_diagnostics(
     model: Model,
     *,
     node_by_id: dict[UUID, ElementaryInstance],
-    incoming: dict[UUID, dict[str, UUID]],
+    incoming: dict[UUID, dict[str, WireRef]],
     fmu_ids: frozenset[UUID],
     diagnostics: list[str],
 ) -> None:
@@ -276,7 +332,7 @@ class DataflowCompilePass:
                 continue
             node_by_id[n.id] = n
 
-        incoming: dict[UUID, dict[str, UUID]] = defaultdict(dict)
+        incoming: dict[UUID, dict[str, WireRef]] = defaultdict(dict)
         edges: list[tuple[UUID, UUID]] = []
 
         for c in iter_live_connectors(model):
@@ -286,7 +342,7 @@ class DataflowCompilePass:
                 continue
             if src.id not in node_by_id or dst.id not in node_by_id:
                 continue
-            incoming[dst.id][c.target_pin] = src.id
+            incoming[dst.id][c.target_pin] = (src.id, str(c.source_pin or "out"))
             edges.append((src.id, dst.id))
 
         ids = list(node_by_id.keys())
