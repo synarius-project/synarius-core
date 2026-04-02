@@ -75,7 +75,7 @@ def orthogonal_drag_segments(
     """
     if not bends:
         return []
-    pts = orthogonal_polyline(sx, sy, tx, ty, bends)
+    pts = polyline_for_endpoints(sx, sy, tx, ty, bends)
     bi = 0
     out: list[tuple[float, float, float, float, int, str]] = []
     for i in range(1, len(pts) - 1):
@@ -104,6 +104,77 @@ def _dedupe_consecutive_points(pts: list[tuple[float, float]]) -> list[tuple[flo
     return out
 
 
+def _axis_redundant_middle(
+    prev: tuple[float, float],
+    mid: tuple[float, float],
+    nxt: tuple[float, float],
+    eps: float = _EPS_POLY,
+) -> bool:
+    """True if *mid* lies on the axis-aligned segment *prev*–*nxt* (strictly between, or at endpoints)."""
+    x0, y0 = prev
+    x1, y1 = mid
+    x2, y2 = nxt
+    if abs(y0 - y1) < eps and abs(y1 - y2) < eps:
+        lo, hi = (x0, x2) if x0 <= x2 else (x2, x0)
+        return lo - eps <= x1 <= hi + eps
+    if abs(x0 - x1) < eps and abs(x1 - x2) < eps:
+        lo, hi = (y0, y2) if y0 <= y2 else (y2, y0)
+        return lo - eps <= y1 <= hi + eps
+    return False
+
+
+def simplify_axis_aligned_polyline(
+    pts: list[tuple[float, float]], eps: float = _EPS_POLY
+) -> list[tuple[float, float]]:
+    """Drop interior vertices that lie on the same horizontal or vertical run as neighbours."""
+    if len(pts) < 3:
+        return list(pts)
+    out: list[tuple[float, float]] = [pts[0]]
+    for i in range(1, len(pts) - 1):
+        if _axis_redundant_middle(out[-1], pts[i], pts[i + 1], eps):
+            continue
+        out.append(pts[i])
+    out.append(pts[-1])
+    return out
+
+
+def remove_axis_aligned_spikes(
+    pts: list[tuple[float, float]], eps: float = _EPS_POLY
+) -> list[tuple[float, float]]:
+    """
+    Remove interior vertices that jog off the axis-aligned segment between neighbours.
+
+    Bad or over-long ``orthogonal_bends`` lists can yield e.g. three points with the same
+    *x* where the middle *y* lies outside the span of the outer two — a visible vertical
+    "tail" in the diagram (see debug logs: same column, non-monotonic *y*).
+    """
+    if len(pts) < 3:
+        return list(pts)
+    out = list(pts)
+    changed = True
+    while changed and len(out) >= 3:
+        changed = False
+        i = 1
+        while i < len(out) - 1:
+            px, py = out[i - 1]
+            cx, cy = out[i]
+            nx, ny = out[i + 1]
+            if abs(px - cx) < eps and abs(cx - nx) < eps:
+                lo, hi = (py, ny) if py <= ny else (ny, py)
+                if cy < lo - eps or cy > hi + eps:
+                    del out[i]
+                    changed = True
+                    continue
+            elif abs(py - cy) < eps and abs(cy - ny) < eps:
+                lo, hi = (px, nx) if px <= nx else (nx, px)
+                if cx < lo - eps or cx > hi + eps:
+                    del out[i]
+                    changed = True
+                    continue
+            i += 1
+    return out
+
+
 def orthogonal_polyline(
     sx: float, sy: float, tx: float, ty: float, bends: list[float]
 ) -> list[tuple[float, float]]:
@@ -129,9 +200,19 @@ def orthogonal_polyline(
 
     px, py = pts[-1]
     tx, ty = float(tx), float(ty)
-    if abs(px - tx) < _EPS and abs(py - ty) < _EPS:
+    # Pin / bend vs target: sub-pixel drift on x or y — snap to target without detour.
+    if abs(py - ty) <= _EPS_POLY and abs(px - tx) <= 1.0:
+        pts[-1] = (tx, ty)
         return _dedupe_consecutive_points(pts)
-    if abs(py - ty) < _EPS:
+    # Same column as target pin: detour is only needed when the knee is clearly off the
+    # target row. Sub-pixel / sub-grid y drift (or small pin vs knee mismatch) must not
+    # add the sideways detour — that shows up as an extra vertical "tail" in the editor.
+    if abs(px - tx) < _EPS and abs(py - ty) <= _COLLINEAR_DY:
+        pts[-1] = (tx, ty)
+        return _dedupe_consecutive_points(pts)
+    # Last segment into target is horizontal; snap small Δy to target row (see _COLLINEAR_DY).
+    if abs(py - ty) <= _COLLINEAR_DY:
+        pts[-1] = (px, ty)
         pts.append((tx, ty))
         return _dedupe_consecutive_points(pts)
     if abs(px - tx) < _EPS:
@@ -156,10 +237,14 @@ def polyline_for_endpoints(
 ) -> list[tuple[float, float]]:
     """Use stored bends, or default auto routing when ``bends`` is empty."""
     if bends:
-        return orthogonal_polyline(sx, sy, tx, ty, bends)
+        raw = orthogonal_polyline(sx, sy, tx, ty, bends)
+        sim = simplify_axis_aligned_polyline(raw)
+        return remove_axis_aligned_spikes(sim)
     b = auto_orthogonal_bends(sx, sy, tx, ty)
     if b:
-        return orthogonal_polyline(sx, sy, tx, ty, b)
+        raw = orthogonal_polyline(sx, sy, tx, ty, b)
+        sim = simplify_axis_aligned_polyline(raw)
+        return remove_axis_aligned_spikes(sim)
     return [(sx, sy), (tx, ty)]
 
 
@@ -190,3 +275,34 @@ def encode_bends_from_polyline(
     for i, (x, y) in enumerate(interior):
         out.append(float(x) if i % 2 == 0 else float(y))
     return out
+
+
+def canonicalize_absolute_bends(
+    sx: float, sy: float, tx: float, ty: float, bends_abs: list[float]
+) -> list[float]:
+    """
+    Rebuild a minimal alternating bend list for the same endpoints.
+
+    Expanded polylines (e.g. runtime detours from :func:`orthogonal_polyline`) sometimes get
+    persisted as extra bend numbers; collinear vertices are stripped so routing matches the
+    intended H–V–H (or longer) knee set without spurious support points.
+    """
+    b = [float(x) for x in bends_abs]
+    if not b:
+        return []
+    for _ in range(8):
+        poly = orthogonal_polyline(sx, sy, tx, ty, b)
+        sim = simplify_axis_aligned_polyline(poly)
+        sim = remove_axis_aligned_spikes(sim)
+        if len(sim) < 2:
+            return []
+        try:
+            nb = encode_bends_from_polyline(sx, sy, tx, ty, sim)
+        except ValueError:
+            return b
+        if not nb:
+            return []
+        if len(nb) == len(b) and all(abs(nb[i] - b[i]) < 1e-5 for i in range(len(b))):
+            return nb
+        b = nb
+    return b

@@ -19,6 +19,7 @@ from synarius_core.model import (
     Connector,
     DataViewer,
     DEFAULT_FMU_LIBRARY_TYPE_KEY,
+    DuplicateIdError,
     ElementaryInstance,
     LocatableInstance,
     Model,
@@ -70,6 +71,8 @@ class MinimalController:
             "@signals": self.model.root,
             "@libraries": self.library_catalog.root,
         }
+        #: Set when ``load <script>`` succeeds; used to resolve relative ``fmu.path`` during simulation.
+        self.last_loaded_script_path: Path | None = None
 
     def _rebind_model_root_aliases(self) -> None:
         """Point workspace aliases at ``self.model.root`` after the model instance was replaced (e.g. ``load``)."""
@@ -590,6 +593,38 @@ class MinimalController:
             raise CommandError(f"{label} expects <name> or <name> <x> <y> <size>.")
         return name, pos, size
 
+    def _pop_optional_uuid_kw(self, kwargs: dict[str, str], key: str = "id") -> UUID | None:
+        """Consume ``id=<uuid>`` style kwargs; return ``None`` if absent or empty."""
+        if key not in kwargs:
+            return None
+        raw = kwargs.pop(key)
+        if raw is None or str(raw).strip() == "":
+            return None
+        s = str(raw).strip()
+        try:
+            return UUID(s)
+        except ValueError:
+            pass
+        hx = s.replace("-", "")
+        if len(hx) == 32:
+            try:
+                return UUID(hex=hx)
+            except ValueError:
+                pass
+        raise CommandError(f"Invalid UUID for {key}: {raw!r}")
+
+    def _pop_optional_dataviewer_id_kw(self, kwargs: dict[str, str]) -> int | None:
+        """Consume ``dataviewer_id=<int>`` for ``new DataViewer`` replay."""
+        if "dataviewer_id" not in kwargs:
+            return None
+        raw = kwargs.pop("dataviewer_id")
+        if raw is None or str(raw).strip() == "":
+            return None
+        try:
+            return int(str(raw).strip(), 10)
+        except ValueError as exc:
+            raise CommandError(f"dataviewer_id must be an integer: {raw!r}") from exc
+
     def _cmd_new(self, args: list[str]) -> str:
         if not args:
             raise CommandError("new requires a type argument.")
@@ -597,6 +632,7 @@ class MinimalController:
         rest = args[1:]
         kwargs = self._parse_kw_pairs(rest)
         positional = [t for t in rest if "=" not in t]
+        explicit_id = self._pop_optional_uuid_kw(kwargs, "id")
 
         if not isinstance(self.current, ComplexInstance):
             raise CommandError("new requires a model container as cwd (e.g. cd @main first; not under @libraries).")
@@ -622,6 +658,7 @@ class MinimalController:
                 unit=kwargs.get("unit", ""),
                 position=pos,
                 size=size,
+                obj_id=explicit_id,
             )
         elif type_name == "BasicOperator":
             if not positional:
@@ -655,6 +692,7 @@ class MinimalController:
                 operation=mapping[symbol],
                 position=pos_bo,
                 size=size_bo,
+                obj_id=explicit_id,
             )
         elif type_name == "DataViewer":
             pos_dv: tuple[float, float] = self._next_dataviewer_default_position()
@@ -662,8 +700,14 @@ class MinimalController:
                 pos_dv = (float(positional[0]), float(positional[1]))
             elif len(positional) == 1:
                 raise CommandError("new DataViewer expects no args or <x> <y>.")
-            vid = self.model.allocate_dataviewer_id()
-            obj = DataViewer(viewer_id=vid, position=pos_dv, size=Size2D(1.0, 1.0))
+            opt_dv_id = self._pop_optional_dataviewer_id_kw(kwargs)
+            vid = opt_dv_id if opt_dv_id is not None else self.model.allocate_dataviewer_id()
+            obj = DataViewer(
+                viewer_id=vid,
+                position=pos_dv,
+                size=Size2D(1.0, 1.0),
+                obj_id=explicit_id,
+            )
         elif type_name == "Connector":
             if len(positional) < 2:
                 raise CommandError("new Connector requires <fromRef> <toRef>.")
@@ -691,6 +735,7 @@ class MinimalController:
                 target_pin=kwargs.get("target_pin", "in"),
                 directed=self._parse_bool(kwargs.get("directed", "true")),
                 orthogonal_bends=ob_list,
+                obj_id=explicit_id,
             )
         elif type_name == "Elementary":
             el_name, pos_el, size_el = self._parse_placed_elementary(positional, label="new Elementary")
@@ -728,6 +773,7 @@ class MinimalController:
                     fmu_extra_meta=extra_kw,
                     position=pos_el,
                     size=size_el,
+                    obj_id=explicit_id,
                 )
             else:
                 obj = ElementaryInstance(
@@ -736,6 +782,7 @@ class MinimalController:
                     pin=pin_seed,
                     position=pos_el,
                     size=size_el,
+                    obj_id=explicit_id,
                 )
         elif type_name == "FmuInstance":
             fm_name, pos_fm, size_fm = self._parse_placed_elementary(positional, label="new FmuInstance")
@@ -770,11 +817,20 @@ class MinimalController:
                 fmu_extra_meta=extra_kw,
                 position=pos_fm,
                 size=size_fm,
+                obj_id=explicit_id,
             )
         else:
             raise CommandError(f"Unsupported new type '{type_name}'.")
 
-        self.model.attach(obj, parent=self.current, reserve_existing=False, remap_ids=False)
+        try:
+            self.model.attach(
+                obj,
+                parent=self.current,
+                reserve_existing=(explicit_id is not None),
+                remap_ids=False,
+            )
+        except DuplicateIdError as exc:
+            raise CommandError(str(exc)) from exc
         return obj.hash_name
 
     def _next_dataviewer_default_position(self) -> tuple[float, float]:
@@ -1053,6 +1109,11 @@ class MinimalController:
         else:
             self.current = self.model.root
         self.selection = [obj for obj_id in sel_ids if (obj := self.model.find_by_id(obj_id)) is not None]
+
+        try:
+            self.last_loaded_script_path = script_path.expanduser().resolve()
+        except OSError:
+            self.last_loaded_script_path = script_path.expanduser()
 
         return "\n".join(command_trace)
 

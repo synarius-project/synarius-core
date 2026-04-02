@@ -1,8 +1,9 @@
 import shlex
 import sys
 import tempfile
-from pathlib import Path
 import unittest
+from pathlib import Path
+from uuid import UUID
 
 
 sys.path.append(str(Path(__file__).resolve().parents[1] / "src"))
@@ -244,6 +245,60 @@ class MinimalControllerProtocolTest(unittest.TestCase):
         ctl.execute("select A")
         with self.assertRaises(CommandError):
             ctl.execute("set @selection -p position 1 2")
+
+    def test_dataviewer_open_widget_set_get(self) -> None:
+        """CCP: DataViewer exposes ``open_widget`` for Studio to open the live widget."""
+        ctl = MinimalController()
+        hn = (ctl.execute("new DataViewer") or "").strip()
+        self.assertTrue(hn)
+        self.assertEqual((ctl.execute(f"get {hn}.open_widget") or "").strip().lower(), "false")
+        ctl.execute(f"set {hn}.open_widget true")
+        self.assertEqual((ctl.execute(f"get {hn}.open_widget") or "").strip().lower(), "true")
+
+    def test_new_with_explicit_id_replay_same_hash_name(self) -> None:
+        fixed = UUID("aaaaaaaa-bbbb-cccc-dddd-000000000001")
+        ctl_a = MinimalController()
+        hn_a = (ctl_a.execute(f"new Variable ReplayV id={fixed}") or "").strip()
+        ctl_b = MinimalController()
+        hn_b = (ctl_b.execute(f"new Variable ReplayV id={fixed}") or "").strip()
+        self.assertEqual(hn_a, hn_b)
+        obj_a = ctl_a.model.find_by_id(fixed)
+        self.assertIsNotNone(obj_a)
+        self.assertEqual(obj_a.hash_name, hn_a)
+        obj_b = ctl_b.model.find_by_id(fixed)
+        self.assertIsNotNone(obj_b)
+        self.assertEqual(obj_b.hash_name, hn_b)
+
+    def test_new_duplicate_explicit_id_raises_command_error(self) -> None:
+        fixed = UUID("aaaaaaaa-bbbb-cccc-dddd-000000000002")
+        ctl = MinimalController()
+        ctl.execute(f"new Variable First id={fixed}")
+        with self.assertRaises(CommandError):
+            ctl.execute(f"new Variable Second id={fixed}")
+
+    def test_new_invalid_id_raises_command_error(self) -> None:
+        ctl = MinimalController()
+        with self.assertRaises(CommandError):
+            ctl.execute("new Variable Bad id=not-a-uuid")
+
+    def test_new_explicit_id_accepts_hex_without_hyphens(self) -> None:
+        ctl = MinimalController()
+        hx = "0123456789abcdef0123456789abcdef"
+        u = UUID(hex=hx)
+        hn = (ctl.execute(f"new Variable HexId id={hx}") or "").strip()
+        obj = ctl.model.find_by_id(u)
+        self.assertIsNotNone(obj)
+        self.assertEqual(obj.hash_name, hn)
+
+    def test_new_dataviewer_explicit_dataviewer_id_and_uuid(self) -> None:
+        ctl = MinimalController()
+        fixed = UUID("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
+        hn = (ctl.execute(f"new DataViewer dataviewer_id=7 id={fixed}") or "").strip()
+        obj = ctl.model.find_by_id(fixed)
+        self.assertIsNotNone(obj)
+        self.assertEqual(int(obj.get("dataviewer_id")), 7)
+        self.assertEqual(obj.name, "DataViewer_7")
+        self.assertEqual(obj.hash_name, hn)
 
 
 if __name__ == "__main__":

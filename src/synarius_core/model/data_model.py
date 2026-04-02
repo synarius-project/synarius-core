@@ -16,8 +16,10 @@ from .connector_routing import (
     auto_orthogonal_bends,
     bends_absolute_to_relative,
     bends_relative_to_absolute,
+    canonicalize_absolute_bends,
     encode_bends_from_polyline,
     polyline_for_endpoints,
+    simplify_axis_aligned_polyline,
 )
 
 
@@ -547,6 +549,30 @@ DEFAULT_FMU_LIBRARY_TYPE_KEY = "std.FmuCoSimulation"
 """Default ``type_key`` for FMU co-simulation blocks (FMF library element when bundled)."""
 
 
+def elementary_diagram_subtitle_for_geometry(inst: object) -> str:
+    """Optional second line under the block title (``diagram.subtitle``), for width/pin alignment.
+
+    Any library elementary may set ``diagram.subtitle``. FMU blocks also populate it from
+    ``model_identifier`` at creation time. Older instances without ``diagram.subtitle`` still
+    fall back to ``fmu.model_identifier`` so geometry matches existing diagrams.
+    """
+    if not isinstance(inst, ElementaryInstance):
+        return ""
+    try:
+        v = inst.get("diagram.subtitle")
+        if isinstance(v, str) and v.strip():
+            return v.strip()[:28]
+    except (KeyError, TypeError, ValueError):
+        pass
+    try:
+        mid = inst.get("fmu.model_identifier")
+        if isinstance(mid, str) and mid.strip():
+            return mid.strip()[:28]
+    except (KeyError, TypeError, ValueError):
+        pass
+    return ""
+
+
 def elementary_fmu_block(
     *,
     name: str,
@@ -619,6 +645,12 @@ def elementary_fmu_block(
         "variables": _normalize_fmu_variable_rows(fmu_variables),
     }
     dict.__setitem__(el.attribute_dict, "fmu", (fmu_body, None, None, True, True))
+    if isinstance(model_identifier, str) and model_identifier.strip():
+        dict.__setitem__(
+            el.attribute_dict,
+            "diagram",
+            ({"subtitle": model_identifier.strip()[:28]}, None, None, True, True),
+        )
     return el
 
 
@@ -696,7 +728,11 @@ class Variable(ElementaryInstance):
 
 
 class DataViewer(LocatableInstance):
-    """Logical data-viewer instance on the diagram; ``dataviewer_id`` is the displayed number."""
+    """Logical data-viewer instance on the diagram; ``dataviewer_id`` is the displayed number.
+
+    ``open_widget`` (bool): when set to true via CCP (``set <ref>.open_widget true``), Synarius Studio
+    opens or focuses the live DataViewer window and resets the attribute to false.
+    """
 
     def __init__(
         self,
@@ -717,7 +753,9 @@ class DataViewer(LocatableInstance):
             parent=parent,
         )
         dict.__setitem__(self.attribute_dict, "dataviewer_id", (vid, None, None, True, True))
-
+        # UI / CCP: ``set <DataViewerRef>.open_widget true`` requests opening the live DataViewer
+        # (Studio clears this to false after handling).
+        dict.__setitem__(self.attribute_dict, "open_widget", (False, None, None, True, True))
 
 
 
@@ -1125,6 +1163,7 @@ class Model:
         self._ensure_trash_folder()
         self._ensure_simulation_mode_attribute()
         self._ensure_last_selected_dataviewer_attribute()
+        self._ensure_dataviewer_open_widget_attributes()
         self._ensure_measurements_tree()
         self._ensure_variable_database_tree()
         self.sync_variable_mapping_entries()
@@ -1158,6 +1197,13 @@ class Model:
         if "last_selected_dataviewer_id" in self.root.attribute_dict:
             return
         dict.__setitem__(self.root.attribute_dict, "last_selected_dataviewer_id", (-1, None, None, True, True))
+
+    def _ensure_dataviewer_open_widget_attributes(self) -> None:
+        """Ensure each DataViewer has ``open_widget`` (for CCP ``set`` / Studio sync)."""
+        for dv in self.iter_dataviewers():
+            if "open_widget" in dv.attribute_dict:
+                continue
+            dict.__setitem__(dv.attribute_dict, "open_widget", (False, None, None, True, True))
 
     # ---- measurements / stimuli / recording ---------------------------------
 
@@ -1554,11 +1600,20 @@ class Connector(BaseObject):
         else:
             raise TypeError("orthogonal_bends expects list/tuple of numbers or comma-separated string.")
         model = self.get_root_model()
-        from synarius_core.model.diagram_geometry import connector_source_pin_diagram_xy
+        from synarius_core.model.diagram_geometry import (
+            connector_source_pin_diagram_xy,
+            connector_target_pin_diagram_xy,
+        )
 
-        xy = connector_source_pin_diagram_xy(model, self) if model is not None else None
-        if xy is not None:
-            sx, sy = xy
+        xy_src = connector_source_pin_diagram_xy(model, self) if model is not None else None
+        xy_tgt = connector_target_pin_diagram_xy(model, self) if model is not None else None
+        if xy_src is not None and xy_tgt is not None:
+            sx, sy = xy_src
+            tx, ty = xy_tgt
+            abs_list = canonicalize_absolute_bends(sx, sy, tx, ty, abs_list)
+            self._orthogonal_bends = bends_absolute_to_relative(sx, sy, abs_list)
+        elif xy_src is not None:
+            sx, sy = xy_src
             self._orthogonal_bends = bends_absolute_to_relative(sx, sy, abs_list)
         else:
             self._orthogonal_bends = abs_list
@@ -1592,7 +1647,13 @@ class Connector(BaseObject):
         """Replace bends from a full orthogonal polyline S→T."""
         sx, sy = source_xy
         tx, ty = target_xy
-        enc = encode_bends_from_polyline(sx, sy, tx, ty, poly)
+        sim = simplify_axis_aligned_polyline([(float(x), float(y)) for x, y in poly])
+        try:
+            enc = encode_bends_from_polyline(sx, sy, tx, ty, sim)
+        except ValueError:
+            enc = []
+        if enc:
+            enc = canonicalize_absolute_bends(sx, sy, tx, ty, enc)
         self._orthogonal_bends = bends_absolute_to_relative(sx, sy, enc) if enc else []
         self._touch()
 
