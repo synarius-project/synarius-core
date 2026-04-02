@@ -3,11 +3,33 @@
 from __future__ import annotations
 
 import shutil
+import json
 from pathlib import Path
+import time
 from typing import Any
 from uuid import UUID
 
 from synarius_core.dataflow_sim.compiler import scalar_ws_read
+
+
+def _agent_log(hypothesis_id: str, location: str, message: str, data: dict[str, Any]) -> None:
+    # region agent log
+    try:
+        payload = {
+            "sessionId": "ccbe80",
+            "runId": "fmu-zero",
+            "hypothesisId": hypothesis_id,
+            "location": location,
+            "message": message,
+            "data": data,
+            "timestamp": int(time.time() * 1000),
+        }
+        with Path(r"h:\Programmierung\Synarius\debug-ccbe80.log").open("a", encoding="utf-8") as df:
+            df.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+    # endregion
+
 
 def _resolve_fmu_archive_path(raw_str: str, ctx: Any) -> Path | None:
     """Resolve ``fmu.path`` for :func:`init_fmu`.
@@ -66,7 +88,16 @@ def _resolve_fmu_archive_path(raw_str: str, ctx: Any) -> Path | None:
 class _Bundle:
     """Holds one FMU slave instance (avoid ``@dataclass``: dynamic plugin modules may lack ``sys.modules``)."""
 
-    __slots__ = ("slave", "unzip_dir", "input_map", "output_map", "node_label", "start_time", "step_failed")
+    __slots__ = (
+        "slave",
+        "unzip_dir",
+        "input_map",
+        "output_map",
+        "node_label",
+        "start_time",
+        "step_failed",
+        "step_log_emitted",
+    )
 
     def __init__(
         self,
@@ -84,6 +115,7 @@ class _Bundle:
         self.node_label = node_label
         self.start_time = float(start_time)
         self.step_failed = False
+        self.step_log_emitted = False
 
 
 class FmuRuntimePlugin:
@@ -96,6 +128,12 @@ class FmuRuntimePlugin:
 
     def init_fmu(self, ctx: Any) -> None:
         self.shutdown_fmu(ctx)
+        _agent_log(
+            "H_FMU_PLUGIN_EXECUTES",
+            "fmu_runtime.py:FmuRuntimePlugin.init_fmu",
+            "init_fmu_enter",
+            {"cwd": str(Path.cwd()), "model_directory": str(ctx.options.get("model_directory") or "")},
+        )
         try:
             from fmpy import read_model_description
             from fmpy.fmi2 import FMU2Slave
@@ -105,17 +143,41 @@ class FmuRuntimePlugin:
             except ImportError:
                 from fmpy import extract
         except ImportError:
+            _agent_log(
+                "H_FMPY_MISSING",
+                "fmu_runtime.py:FmuRuntimePlugin.init_fmu",
+                "fmpy_import_failed",
+                {"diagnostic": "fmpy import failed"},
+            )
             ctx.diagnostics.append(
                 "FMU runtime: FMPy is not installed (optional extra: pip install 'synarius-core[fmu]' or fmpy)."
             )
             return
+        _agent_log(
+            "H_FMPY_MISSING",
+            "fmu_runtime.py:FmuRuntimePlugin.init_fmu",
+            "fmpy_import_ok",
+            {"diagnostic": "fmpy import succeeded"},
+        )
 
         compiled = ctx.artifacts.get("dataflow")
         if compiled is None:
             return
         fdiag = ctx.artifacts.get("fmu_diagram")
         if fdiag is None or not getattr(fdiag, "fmu_node_ids", None):
+            _agent_log(
+                "H_FMU_NODE_DETECTION",
+                "fmu_runtime.py:FmuRuntimePlugin.init_fmu",
+                "no_fmu_nodes_compiled",
+                {"has_fdiag": bool(fdiag is not None)},
+            )
             return
+        _agent_log(
+            "H_FMU_NODE_DETECTION",
+            "fmu_runtime.py:FmuRuntimePlugin.init_fmu",
+            "fmu_nodes_compiled",
+            {"count": len(list(getattr(fdiag, "fmu_node_ids", []) or []))},
+        )
 
         for uid in sorted(fdiag.fmu_node_ids, key=lambda u: str(u)):
             node = compiled.node_by_id.get(uid)
@@ -125,6 +187,17 @@ class FmuRuntimePlugin:
                 continue
             raw_path = str(node.get("fmu.path") or "")
             path = _resolve_fmu_archive_path(raw_path, ctx)
+            _agent_log(
+                "H_FMU_PATH_RESOLUTION",
+                "fmu_runtime.py:FmuRuntimePlugin.init_fmu",
+                "fmu_path_resolution",
+                {
+                    "node": str(node.name),
+                    "raw_path": raw_path,
+                    "resolved_path": str(path) if path is not None else "",
+                    "model_directory": str(ctx.options.get("model_directory") or ""),
+                },
+            )
             if path is None:
                 ctx.diagnostics.append(
                     f"FMU runtime: file missing for node {node.name!r}: {raw_path!r} "
@@ -176,6 +249,12 @@ class FmuRuntimePlugin:
                 continue
 
             input_map, output_map = _resolve_ios(node, model_description, ctx)
+            _agent_log(
+                "H_FMU_IO_MAP",
+                "fmu_runtime.py:FmuRuntimePlugin.init_fmu",
+                "resolved_fmu_io_maps",
+                {"node": str(node.name), "input_count": len(input_map), "output_count": len(output_map)},
+            )
             self._bundles[uid] = _Bundle(
                 slave=slave,
                 unzip_dir=unzip_dir,
@@ -221,7 +300,26 @@ class FmuRuntimePlugin:
                 for (_pname, _vr), y in zip(b.output_map, ys, strict=True):
                     ws[(node_id, _pname)] = float(y)
                 ws[node_id] = float(ys[0])
+                if not b.step_log_emitted:
+                    _agent_log(
+                        "H_FMU_STEP_OUTPUT",
+                        "fmu_runtime.py:FmuRuntimePlugin.step_fmu",
+                        "first_step_outputs",
+                        {
+                            "node": b.node_label,
+                            "ccp": ccp,
+                            "step_size": h,
+                            "outputs_sample": [float(v) for v in ys[:4]],
+                        },
+                    )
+                    b.step_log_emitted = True
         except Exception as exc:  # noqa: BLE001
+            _agent_log(
+                "H_FMU_STEP_FAILURE",
+                "fmu_runtime.py:FmuRuntimePlugin.step_fmu",
+                "step_failed_exception",
+                {"node": b.node_label, "error": str(exc)[:500]},
+            )
             ctx.diagnostics.append(f"FMU runtime: step failed for {b.node_label!r}: {exc}")
             b.step_failed = True
             ctx.diagnostics.append(
