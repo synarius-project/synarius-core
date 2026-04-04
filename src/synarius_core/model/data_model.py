@@ -1158,6 +1158,7 @@ class Model:
         self.context.model = self
         self.root = root
         self.variable_registry = VariableNameRegistry()
+        self._parameter_runtime = None
         self.attach(root, parent=None, reserve_existing=load_existing_ids, remap_ids=not load_existing_ids)
         self._ensure_main_output_color()
         self._ensure_trash_folder()
@@ -1166,6 +1167,7 @@ class Model:
         self._ensure_dataviewer_open_widget_attributes()
         self._ensure_measurements_tree()
         self._ensure_variable_database_tree()
+        self._ensure_parameters_tree()
         self.sync_variable_mapping_entries()
 
     @classmethod
@@ -1254,6 +1256,18 @@ class Model:
                 return
         db = VariableDatabase(name="variables_db")
         self.attach(db, parent=self.root, reserve_existing=False, remap_ids=False)
+
+    def parameter_runtime(self):
+        if self._parameter_runtime is None:
+            from synarius_core.parameters import ParameterRuntime
+
+            self._parameter_runtime = ParameterRuntime(self)
+        return self._parameter_runtime
+
+    def _ensure_parameters_tree(self) -> None:
+        if self.root.name != "main":
+            return
+        self.parameter_runtime().ensure_tree()
 
     def get_variable_database(self) -> VariableDatabase | None:
         if self.root.name != "main":

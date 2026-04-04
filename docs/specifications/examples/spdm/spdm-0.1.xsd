@@ -1,0 +1,273 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema
+    xmlns:xs="http://www.w3.org/2001/XMLSchema"
+    targetNamespace="urn:synarius:spdm:0.1"
+    xmlns:spdm="urn:synarius:spdm:0.1"
+    elementFormDefault="qualified"
+    attributeFormDefault="unqualified">
+
+  <xs:simpleType name="ScalarKind">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="int"/>
+      <xs:enumeration value="float"/>
+      <xs:enumeration value="bool"/>
+      <xs:enumeration value="string"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:complexType name="RangeType">
+    <xs:attribute name="min" type="xs:double" use="optional"/>
+    <xs:attribute name="max" type="xs:double" use="optional"/>
+    <xs:attribute name="hard" type="xs:boolean" use="optional"/>
+  </xs:complexType>
+
+  <xs:complexType name="ScalarValueType">
+    <xs:attribute name="kind" type="spdm:ScalarKind" use="required"/>
+    <xs:attribute name="value" type="xs:string" use="required"/>
+  </xs:complexType>
+
+  <xs:complexType name="EnumValueType">
+    <xs:attribute name="literal" type="xs:string" use="required"/>
+    <xs:attribute name="coded" type="xs:string" use="optional"/>
+  </xs:complexType>
+
+  <xs:complexType name="ArrayValueType">
+    <xs:sequence>
+      <xs:element name="Item" type="xs:string" minOccurs="0" maxOccurs="unbounded"/>
+    </xs:sequence>
+    <xs:attribute name="dimensions" type="xs:string" use="required"/>
+  </xs:complexType>
+
+  <xs:complexType name="AxisType">
+    <xs:sequence>
+      <xs:element name="V" type="xs:double" minOccurs="0" maxOccurs="unbounded"/>
+    </xs:sequence>
+    <xs:attribute name="unitRef" type="xs:string" use="optional"/>
+  </xs:complexType>
+
+  <xs:complexType name="CurveValueType">
+    <xs:sequence>
+      <xs:element name="AxisX" type="spdm:AxisType"/>
+      <xs:element name="Values">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="V" type="xs:double" minOccurs="0" maxOccurs="unbounded"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="MapValueType">
+    <xs:sequence>
+      <xs:element name="AxisX" type="spdm:AxisType"/>
+      <xs:element name="AxisY" type="spdm:AxisType"/>
+      <xs:element name="Values">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="V" type="xs:double" minOccurs="0" maxOccurs="unbounded"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+    </xs:sequence>
+    <xs:attribute name="xSize" type="xs:positiveInteger" use="required"/>
+    <xs:attribute name="ySize" type="xs:positiveInteger" use="required"/>
+    <xs:attribute name="storage" type="xs:string" use="optional" default="row-major"/>
+  </xs:complexType>
+
+  <xs:complexType name="StructValueType">
+    <xs:sequence>
+      <xs:element name="FieldValue" minOccurs="0" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element ref="spdm:Value"/>
+          </xs:sequence>
+          <xs:attribute name="name" type="xs:string" use="required"/>
+        </xs:complexType>
+      </xs:element>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:element name="Value">
+    <xs:complexType>
+      <xs:choice>
+        <xs:element name="ScalarValue" type="spdm:ScalarValueType"/>
+        <xs:element name="EnumValue" type="spdm:EnumValueType"/>
+        <xs:element name="ArrayValue" type="spdm:ArrayValueType"/>
+        <xs:element name="CurveValue" type="spdm:CurveValueType"/>
+        <xs:element name="MapValue" type="spdm:MapValueType"/>
+        <xs:element name="StructValue" type="spdm:StructValueType"/>
+      </xs:choice>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:complexType name="MetadataType">
+    <xs:sequence>
+      <xs:element name="Entry" minOccurs="0" maxOccurs="unbounded">
+        <xs:complexType mixed="true">
+          <xs:attribute name="key" type="xs:string" use="required"/>
+          <xs:attribute name="ns" type="xs:string" use="optional"/>
+        </xs:complexType>
+      </xs:element>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="ConstraintsType">
+    <xs:sequence>
+      <xs:element name="Range" type="spdm:RangeType" minOccurs="0" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="TypeDefinitionsType">
+    <xs:sequence>
+      <xs:element name="EnumType" minOccurs="0" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="Literal" minOccurs="1" maxOccurs="unbounded">
+              <xs:complexType>
+                <xs:attribute name="name" type="xs:string" use="required"/>
+                <xs:attribute name="coded" type="xs:string" use="optional"/>
+              </xs:complexType>
+            </xs:element>
+          </xs:sequence>
+          <xs:attribute name="id" type="xs:string" use="required"/>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="ArrayType" minOccurs="0" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:attribute name="id" type="xs:string" use="required"/>
+          <xs:attribute name="elementType" type="xs:string" use="required"/>
+          <xs:attribute name="dimensions" type="xs:string" use="required"/>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="MapType" minOccurs="0" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:attribute name="id" type="xs:string" use="required"/>
+          <xs:attribute name="xType" type="xs:string" use="required"/>
+          <xs:attribute name="yType" type="xs:string" use="required"/>
+          <xs:attribute name="valueType" type="xs:string" use="required"/>
+          <xs:attribute name="xSize" type="xs:positiveInteger" use="required"/>
+          <xs:attribute name="ySize" type="xs:positiveInteger" use="required"/>
+        </xs:complexType>
+      </xs:element>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="UnitDefinitionsType">
+    <xs:sequence>
+      <xs:element name="Unit" minOccurs="0" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:attribute name="id" type="xs:string" use="required"/>
+          <xs:attribute name="symbol" type="xs:string" use="optional"/>
+          <xs:attribute name="quantity" type="xs:string" use="optional"/>
+        </xs:complexType>
+      </xs:element>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="ParameterDefinitionType">
+    <xs:sequence>
+      <xs:element name="DisplayName" type="xs:string" minOccurs="0"/>
+      <xs:element name="Description" type="xs:string" minOccurs="0"/>
+      <xs:element name="DefaultValue" minOccurs="0">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element ref="spdm:Value"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="Constraints" type="spdm:ConstraintsType" minOccurs="0"/>
+      <xs:element name="Metadata" type="spdm:MetadataType" minOccurs="0"/>
+    </xs:sequence>
+    <xs:attribute name="id" type="xs:string" use="required"/>
+    <xs:attribute name="typeRef" type="xs:string" use="required"/>
+    <xs:attribute name="unitRef" type="xs:string" use="optional"/>
+    <xs:attribute name="quantity" type="xs:string" use="optional"/>
+    <xs:attribute name="path" type="xs:string" use="optional"/>
+  </xs:complexType>
+
+  <xs:complexType name="ParameterDefinitionsType">
+    <xs:sequence>
+      <xs:element name="ParameterDefinition" type="spdm:ParameterDefinitionType" minOccurs="0" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="VariantModelType">
+    <xs:sequence>
+      <xs:element name="Condition" minOccurs="0" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:attribute name="id" type="xs:string" use="required"/>
+          <xs:attribute name="expression" type="xs:string" use="required"/>
+        </xs:complexType>
+      </xs:element>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="OverrideType">
+    <xs:sequence>
+      <xs:element ref="spdm:Value"/>
+    </xs:sequence>
+    <xs:attribute name="conditionRef" type="xs:string" use="required"/>
+    <xs:attribute name="priority" type="xs:integer" use="optional"/>
+  </xs:complexType>
+
+  <xs:complexType name="ParameterValueRefType">
+    <xs:sequence>
+      <xs:element name="BaseValue" minOccurs="0">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element ref="spdm:Value"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="Override" type="spdm:OverrideType" minOccurs="0" maxOccurs="unbounded"/>
+      <xs:element name="Metadata" type="spdm:MetadataType" minOccurs="0"/>
+    </xs:sequence>
+    <xs:attribute name="parameterId" type="xs:string" use="required"/>
+  </xs:complexType>
+
+  <xs:complexType name="ValuesType">
+    <xs:sequence>
+      <xs:element name="ParameterValueRef" type="spdm:ParameterValueRefType" minOccurs="0" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="ParameterSetType">
+    <xs:sequence>
+      <xs:element name="Metadata" type="spdm:MetadataType" minOccurs="0"/>
+      <xs:element name="Values" type="spdm:ValuesType"/>
+    </xs:sequence>
+    <xs:attribute name="id" type="xs:string" use="required"/>
+    <xs:attribute name="baseSetRef" type="xs:string" use="optional"/>
+    <xs:attribute name="priority" type="xs:integer" use="optional"/>
+  </xs:complexType>
+
+  <xs:complexType name="ParameterSetsType">
+    <xs:sequence>
+      <xs:element name="ParameterSet" type="spdm:ParameterSetType" minOccurs="1" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="ExtensionsType">
+    <xs:sequence>
+      <xs:any processContents="lax" minOccurs="0" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:element name="ParameterPackage">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="TypeDefinitions" type="spdm:TypeDefinitionsType"/>
+        <xs:element name="UnitDefinitions" type="spdm:UnitDefinitionsType"/>
+        <xs:element name="ParameterDefinitions" type="spdm:ParameterDefinitionsType"/>
+        <xs:element name="VariantModel" type="spdm:VariantModelType"/>
+        <xs:element name="ParameterSets" type="spdm:ParameterSetsType"/>
+        <xs:element name="Extensions" type="spdm:ExtensionsType" minOccurs="0"/>
+      </xs:sequence>
+      <xs:attribute name="schemaVersion" type="xs:string" use="required"/>
+      <xs:attribute name="packageId" type="xs:string" use="required"/>
+      <xs:attribute name="createdAt" type="xs:dateTime" use="required"/>
+    </xs:complexType>
+  </xs:element>
+
+</xs:schema>

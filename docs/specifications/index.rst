@@ -10,5 +10,8 @@ Specifications
    library_catalog
    plugin_api
    controller_command_protocol
+   parameters_data_model_dcm2_cdfx_v0_5
+   parameters_duckdb_sot_provisional
+   spdm_v0_1
    fmf_fmfl/index
 

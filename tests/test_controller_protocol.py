@@ -134,6 +134,9 @@ class MinimalControllerProtocolTest(unittest.TestCase):
 
         short_out = ctl.execute("lsattr") or ""
         self.assertIn("NAME", short_out)
+        # No blank spacer rows between scalar attributes (regression: __gap__ per key).
+        body_lines = [ln.strip() for ln in short_out.splitlines()[1:]]
+        self.assertTrue(all(body_lines), msg=f"blank lsattr row(s) in:\n{short_out!r}")
         self.assertIn("updated_at", short_out)
         self.assertNotIn("|", short_out)
         self.assertNotIn("---", short_out)

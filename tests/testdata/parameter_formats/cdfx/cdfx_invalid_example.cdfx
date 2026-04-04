@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<MSRSW>
+  <SHORT-NAME>cdfx_invalid_example</SHORT-NAME>
+  <CATEGORY>CDF21</CATEGORY>
+  <SW-SYSTEMS>
+    <SW-SYSTEM>
+      <SHORT-NAME>broken</SHORT-NAME>
+      <SW-INSTANCE-SPEC>
+        <SW-INSTANCE-TREE>
+          <SHORT-NAME>broken/tree</SHORT-NAME>
+          <SW-INSTANCE>
+            <SHORT-NAME>P_BROKEN</SHORT-NAME>
+            <CATEGORY>VALUE</CATEGORY>
+            <SW-VALUE-CONT>
+              <SW-VALUES-PHYS><V>12.3</V>
+            </SW-VALUES-PHYS>
+          </SW-INSTANCE>
+        </SW-INSTANCE-TREE>
+      </SW-INSTANCE-SPEC>
+    </SW-SYSTEM>
+  </SW-SYSTEMS>
+</MSRSW>

@@ -196,6 +196,7 @@ class PluginRegistry:
         *,
         extra_plugin_containers: Iterable[Path] | None = None,
         scan_builtin_plugin_directories: bool = True,
+        defer_initial_load: bool = False,
     ) -> None:
         self._extra = list(Path(p).resolve() for p in (extra_plugin_containers or ()) if Path(p).is_dir())
         self._scan_builtin = bool(scan_builtin_plugin_directories)
@@ -203,7 +204,20 @@ class PluginRegistry:
         self.capability_warnings: list[str] = []
         self._loaded: list[LoadedPlugin] = []
         self._by_capability: dict[str, LoadedPlugin] = {}
-        self.reload()
+        if not defer_initial_load:
+            self.reload()
+
+    def set_extra_plugin_containers(self, paths: Iterable[Path]) -> None:
+        """Replace additional ``Plugins/``-style container directories (resolved, existing dirs only)."""
+        out: list[Path] = []
+        for raw in paths or ():
+            p = Path(raw).resolve()
+            try:
+                if p.is_dir():
+                    out.append(p)
+            except OSError:
+                continue
+        self._extra = out
 
     @classmethod
     def load_default(cls) -> PluginRegistry:

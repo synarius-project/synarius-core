@@ -291,12 +291,22 @@ def _parse_element_description(element_xml: Path, fallback_id: str) -> ParsedEle
 class LibraryCatalog:
     """Discover, parse, and hold FMF libraries; builds a console navigation tree."""
 
-    def __init__(self, *, extra_roots: Iterable[Path] | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        extra_roots: Iterable[Path] | None = None,
+        defer_initial_load: bool = False,
+    ) -> None:
         self._extra = list(extra_roots or ())
         self.load_errors: list[str] = []
         self.libraries: list[ParsedLibrary] = []
         self.root = LibrariesCatalogRoot(name="libraries", parent=None)
-        self.reload()
+        if not defer_initial_load:
+            self.reload()
+
+    def set_extra_roots(self, roots: Iterable[Path]) -> None:
+        """Replace additional FMF roots (e.g. user ``Lib``); call :meth:`reload` to apply."""
+        self._extra = list(roots)
 
     @classmethod
     def load_default(cls) -> LibraryCatalog:

@@ -100,6 +100,10 @@ Top-Level Command Set
      - Read attribute(s) from a target
      - ``get <target>``
      - Value output
+   * - ``print``
+     - Print optional type-specific information for a target object
+     - ``print <ref>`` or ``print``
+     - Human-readable informational output
    * - ``del``
      - Delete or move to trash (see semantics below)
      - ``del <ref...>`` or ``del @selected``
@@ -194,7 +198,7 @@ Pin semantics:
 - ``idxOutPin``: source output pin index
 
 Placement (locatable diagram nodes)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 For ``Variable`` and ``BasicOperator``, optional trailing numerics set ``position`` (``x``, ``y``) and, when given, square ``size``:
 
@@ -321,6 +325,45 @@ Error Behavior
 - If the target cannot be resolved, the command fails with a clear error.
 - If the attribute is unknown or not readable, the command fails with a clear error.
 - In script execution, default behavior is fail-fast (stop on first error).
+
+``print`` Forms
+---------------
+
+1. ``print <ref>``
+2. ``print`` (applies to current context)
+
+Examples::
+
+   print @objects/variables/Speed
+   print Kp
+
+``print`` Detailed Semantics
+----------------------------
+
+Purpose
+~~~~~~~
+
+``print`` is a general CCP command for optional, type-specific informational output intended for CLI users.
+It complements ``get`` by providing compact, human-friendly summaries rather than raw attribute reads.
+
+Target Resolution
+~~~~~~~~~~~~~~~~~
+
+- In ``print <ref>``, the object is resolved from ``<ref>`` using normal CCP path/reference rules.
+- In ``print`` without argument, the current context object is used.
+
+Output Semantics
+~~~~~~~~~~~~~~~~
+
+- Output is plain text.
+- Type-specific formatters may provide richer summaries for known domain objects.
+- When no specialized formatter exists, implementations may return a minimal generic object summary.
+
+Error Behavior
+~~~~~~~~~~~~~~
+
+- If the target cannot be resolved, the command fails with a clear error.
+- If printing is unsupported for a resolved target, behavior must be consistent and explicit (clear error or documented generic fallback).
 
 ``select`` and ``del``
 ----------------------

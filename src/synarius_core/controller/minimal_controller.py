@@ -473,22 +473,21 @@ class MinimalController:
 
     def _build_lsattr_rows(self, context: Any) -> list[tuple[str, Any]]:
         rows: list[tuple[str, Any]] = []
-        prev_group: str | None = None
+        # Gap only between flattened dict sub-rows when the top prefix changes (e.g. fmu.* vs pin.*).
+        # Scalar attrs use the whole key as "first segment", so comparing groups would insert a blank
+        # line between every row — wrong for normal lsattr output.
+        prev_flat_group: str | None = None
         for key in sorted(context.attribute_dict.keys()):
             raw_val = context.attribute_dict.stored_value(key)
             if isinstance(raw_val, dict) and not context.attribute_dict.virtual(key):
                 flat = self._flatten_mapping_for_lsattr(key, raw_val)
                 for fk, fv in flat:
                     g = fk.split(".", 1)[0]
-                    if prev_group is not None and g != prev_group:
+                    if prev_flat_group is not None and g != prev_flat_group:
                         rows.append(("__gap__", None))
-                    prev_group = g
+                    prev_flat_group = g
                     rows.append((fk, fv))
                 continue
-            g = key.split(".", 1)[0]
-            if prev_group is not None and g != prev_group:
-                rows.append(("__gap__", None))
-            prev_group = g
             rows.append((key, context.attribute_dict[key]))
         return rows
 
@@ -819,6 +818,21 @@ class MinimalController:
                 size=size_fm,
                 obj_id=explicit_id,
             )
+        elif type_name == "DataSet":
+            if not positional:
+                raise CommandError("new DataSet requires <name>.")
+            obj = ComplexInstance(name=positional[0], obj_id=explicit_id)
+            obj.attribute_dict["type"] = "MODEL.PARAMETER_DATA_SET"
+        elif type_name == "DataContainer":
+            if not positional:
+                raise CommandError("new DataContainer requires <name>.")
+            obj = ComplexInstance(name=positional[0], obj_id=explicit_id)
+            obj.attribute_dict["type"] = "MODEL.PARAMETER_DATA_CONTAINER"
+        elif type_name == "CalParam":
+            if not positional:
+                raise CommandError("new CalParam requires <name>.")
+            obj = ComplexInstance(name=positional[0], obj_id=explicit_id)
+            obj.attribute_dict["type"] = "MODEL.CAL_PARAM"
         else:
             raise CommandError(f"Unsupported new type '{type_name}'.")
 
@@ -831,6 +845,40 @@ class MinimalController:
             )
         except DuplicateIdError as exc:
             raise CommandError(str(exc)) from exc
+        if type_name == "DataSet":
+            if "data_source" in kwargs:
+                raise CommandError(
+                    "new DataSet data_source=... is no longer supported. "
+                    "Use source_path=... (and optional source_format/source_hash)."
+                )
+            try:
+                self.model.parameter_runtime().register_data_set_node(
+                    obj,
+                    source_path=str(kwargs.get("source_path", "")),
+                    source_format=str(kwargs.get("source_format", "unknown")),
+                    source_hash=str(kwargs.get("source_hash", "")),
+                )
+            except ValueError as exc:
+                raise CommandError(str(exc)) from exc
+        elif type_name == "DataContainer":
+            self.model.parameter_runtime().register_data_container_node(obj)
+        elif type_name == "CalParam":
+            ds_ref = kwargs.get("data_set")
+            ds_id2: UUID | None = None
+            if ds_ref is not None and str(ds_ref).strip() != "":
+                ds_obj = self._resolve_ref(str(ds_ref))
+                did = getattr(ds_obj, "id", None)
+                if not isinstance(did, UUID):
+                    raise CommandError("data_set must resolve to an attached object with UUID.")
+                ds_id2 = did
+            try:
+                self.model.parameter_runtime().register_cal_param_node(
+                    obj,
+                    data_set_id=ds_id2,
+                    category=str(kwargs.get("category", "VALUE")),
+                )
+            except ValueError as exc:
+                raise CommandError(str(exc)) from exc
         return obj.hash_name
 
     def _next_dataviewer_default_position(self) -> tuple[float, float]:

@@ -475,6 +475,40 @@ class SimulationEngineTest(unittest.TestCase):
             eng.step()
             self.assertEqual(impl.steps, 1)
 
+    def test_simple_run_engine_accepts_model_directory_path(self) -> None:
+        """Regression: __init__ uses Path(model_directory); missing pathlib import broke Studio start."""
+        with tempfile.TemporaryDirectory() as td:
+            td_path = Path(td).resolve()
+            model = Model.new("main")
+            v = Variable(name="v", type_key="t", value=0.0)
+            model.attach(v, parent=model.root, reserve_existing=False, remap_ids=False)
+            eng = SimpleRunEngine(model, model_directory=td_path)
+            self.assertIsNotNone(eng._model_directory)
+            self.assertEqual(eng._model_directory.resolve(), td_path)
+
+    def test_simple_run_engine_accepts_model_directory_str(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            td_path = Path(td).resolve()
+            model = Model.new("main")
+            v = Variable(name="v", type_key="t", value=0.0)
+            model.attach(v, parent=model.root, reserve_existing=False, remap_ids=False)
+            eng = SimpleRunEngine(model, model_directory=str(td_path))
+            self.assertIsNotNone(eng._model_directory)
+            self.assertEqual(eng._model_directory.resolve(), td_path)
+
+    def test_context_time_s_advances_by_dt_per_step_only(self) -> None:
+        """Contract for GUI live axis: timestamps must follow ctx.time_s, not wall clock."""
+        model = Model.new("main")
+        v = Variable(name="v", type_key="t", value=0.0)
+        model.attach(v, parent=model.root, reserve_existing=False, remap_ids=False)
+        dt = 0.03
+        eng = SimpleRunEngine(model, dt_s=dt)
+        eng.init()
+        self.assertEqual(eng.context.time_s, 0.0)
+        for k in range(1, 6):
+            eng.step()
+            self.assertAlmostEqual(eng.context.time_s, k * dt, places=9)
+
 
 if __name__ == "__main__":
     unittest.main()

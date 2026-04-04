@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<spdm:ParameterPackage
+    xmlns:spdm="urn:synarius:spdm:0.1"
+    schemaVersion="0.1"
+    packageId="Powertrain.Calib"
+    createdAt="2026-04-02T10:30:00Z">
+
+  <spdm:TypeDefinitions>
+    <spdm:EnumType id="FuelMode_t">
+      <spdm:Literal name="Eco" coded="0"/>
+      <spdm:Literal name="Normal" coded="1"/>
+      <spdm:Literal name="Sport" coded="2"/>
+    </spdm:EnumType>
+    <spdm:ArrayType id="IgnAngleCorrVec_t" elementType="float" dimensions="8"/>
+    <spdm:MapType id="TorqueMap_t" xType="float" yType="float" valueType="float" xSize="4" ySize="3"/>
+  </spdm:TypeDefinitions>
+
+  <spdm:UnitDefinitions>
+    <spdm:Unit id="deg" symbol="deg" quantity="Angle"/>
+    <spdm:Unit id="Nm" symbol="N*m" quantity="Torque"/>
+    <spdm:Unit id="rpm" symbol="1/min" quantity="RotationalSpeed"/>
+    <spdm:Unit id="pct" symbol="%" quantity="Ratio"/>
+  </spdm:UnitDefinitions>
+
+  <spdm:ParameterDefinitions>
+    <spdm:ParameterDefinition id="Engine.MaxTorque" typeRef="float" unitRef="Nm" quantity="Torque">
+      <spdm:DefaultValue>
+        <spdm:Value>
+          <spdm:ScalarValue kind="float" value="300.0"/>
+        </spdm:Value>
+      </spdm:DefaultValue>
+      <spdm:Constraints>
+        <spdm:Range min="0.0" max="800.0" hard="true"/>
+      </spdm:Constraints>
+    </spdm:ParameterDefinition>
+
+    <spdm:ParameterDefinition id="Ignition.CorrVector" typeRef="IgnAngleCorrVec_t" unitRef="deg"/>
+    <spdm:ParameterDefinition id="Engine.TorqueMap" typeRef="TorqueMap_t" unitRef="Nm"/>
+    <spdm:ParameterDefinition id="Vehicle.FuelMode" typeRef="FuelMode_t"/>
+  </spdm:ParameterDefinitions>
+
+  <spdm:VariantModel>
+    <spdm:Condition id="isEU" expression="Market == 'EU'"/>
+  </spdm:VariantModel>
+
+  <spdm:ParameterSets>
+    <spdm:ParameterSet id="Base" priority="0">
+      <spdm:Values>
+        <spdm:ParameterValueRef parameterId="Engine.MaxTorque">
+          <spdm:BaseValue>
+            <spdm:Value>
+              <spdm:ScalarValue kind="float" value="320.0"/>
+            </spdm:Value>
+          </spdm:BaseValue>
+        </spdm:ParameterValueRef>
+
+        <spdm:ParameterValueRef parameterId="Ignition.CorrVector">
+          <spdm:BaseValue>
+            <spdm:Value>
+              <spdm:ArrayValue dimensions="8">
+                <spdm:Item>0.0</spdm:Item><spdm:Item>0.2</spdm:Item><spdm:Item>0.4</spdm:Item><spdm:Item>0.5</spdm:Item>
+                <spdm:Item>0.5</spdm:Item><spdm:Item>0.4</spdm:Item><spdm:Item>0.2</spdm:Item><spdm:Item>0.0</spdm:Item>
+              </spdm:ArrayValue>
+            </spdm:Value>
+          </spdm:BaseValue>
+        </spdm:ParameterValueRef>
+
+        <spdm:ParameterValueRef parameterId="Engine.TorqueMap">
+          <spdm:BaseValue>
+            <spdm:Value>
+              <spdm:MapValue xSize="4" ySize="3" storage="row-major">
+                <spdm:AxisX unitRef="rpm">
+                  <spdm:V>1000</spdm:V><spdm:V>2000</spdm:V><spdm:V>3000</spdm:V><spdm:V>4000</spdm:V>
+                </spdm:AxisX>
+                <spdm:AxisY unitRef="pct">
+                  <spdm:V>20</spdm:V><spdm:V>50</spdm:V><spdm:V>100</spdm:V>
+                </spdm:AxisY>
+                <spdm:Values>
+                  <spdm:V>80</spdm:V><spdm:V>140</spdm:V><spdm:V>190</spdm:V><spdm:V>210</spdm:V>
+                  <spdm:V>100</spdm:V><spdm:V>180</spdm:V><spdm:V>250</spdm:V><spdm:V>280</spdm:V>
+                  <spdm:V>120</spdm:V><spdm:V>220</spdm:V><spdm:V>300</spdm:V><spdm:V>320</spdm:V>
+                </spdm:Values>
+              </spdm:MapValue>
+            </spdm:Value>
+          </spdm:BaseValue>
+        </spdm:ParameterValueRef>
+
+        <spdm:ParameterValueRef parameterId="Vehicle.FuelMode">
+          <spdm:BaseValue>
+            <spdm:Value>
+              <spdm:EnumValue literal="Normal" coded="1"/>
+            </spdm:Value>
+          </spdm:BaseValue>
+          <spdm:Override conditionRef="isEU" priority="10">
+            <spdm:Value>
+              <spdm:EnumValue literal="Eco" coded="0"/>
+            </spdm:Value>
+          </spdm:Override>
+        </spdm:ParameterValueRef>
+      </spdm:Values>
+    </spdm:ParameterSet>
+  </spdm:ParameterSets>
+
+</spdm:ParameterPackage>

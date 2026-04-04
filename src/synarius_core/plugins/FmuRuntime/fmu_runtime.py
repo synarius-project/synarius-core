@@ -2,12 +2,45 @@
 
 from __future__ import annotations
 
+import math
 import shutil
 from pathlib import Path
 from typing import Any
 from uuid import UUID
 
-from synarius_core.dataflow_sim.compiler import scalar_ws_read
+from synarius_core.dataflow_sim.compiler import scalar_ws_read, unpack_wire_ref
+from synarius_core.model import Variable
+
+
+def _var_stim_value_t0(var: Variable) -> float | None:
+    try:
+        kind = str(var.get("stim_kind") or "").strip().lower()
+    except Exception:
+        return None
+    if kind in ("", "none", "off"):
+        return None
+
+    def _f(key: str, default: float = 0.0) -> float:
+        try:
+            return float(var.get(key))
+        except Exception:
+            return default
+
+    if kind == "constant":
+        return _f("stim_p0", 0.0)
+    if kind == "ramp":
+        return _f("stim_p0", 0.0)
+    if kind == "sine":
+        off = _f("stim_p0", 0.0)
+        amp = _f("stim_p1", 1.0)
+        ph = math.radians(_f("stim_p3", 0.0))
+        return off + amp * math.sin(ph)
+    if kind == "step":
+        low = _f("stim_p0", 0.0)
+        high = _f("stim_p2", 1.0)
+        t_sw = _f("stim_p1", 0.0)
+        return high if 0.0 >= t_sw else low
+    return None
 
 def _resolve_fmu_archive_path(raw_str: str, ctx: Any) -> Path | None:
     """Resolve ``fmu.path`` for :func:`init_fmu`.
@@ -70,6 +103,7 @@ class _Bundle:
         "slave",
         "unzip_dir",
         "input_map",
+        "parameter_input_map",
         "output_map",
         "node_label",
         "start_time",
@@ -81,6 +115,7 @@ class _Bundle:
         slave: Any,
         unzip_dir: Path,
         input_map: list[tuple[str, int]],
+        parameter_input_map: list[tuple[str, int]],
         output_map: list[tuple[str, int]],
         node_label: str,
         start_time: float,
@@ -88,6 +123,7 @@ class _Bundle:
         self.slave = slave
         self.unzip_dir = unzip_dir
         self.input_map = input_map
+        self.parameter_input_map = parameter_input_map
         self.output_map = output_map
         self.node_label = node_label
         self.start_time = float(start_time)
@@ -165,6 +201,7 @@ class FmuRuntimePlugin:
             mid = str(node.get("fmu.model_identifier") or "").strip()
             if not mid:
                 mid = model_description.coSimulation.modelIdentifier
+            input_map, output_map, parameter_input_map = _resolve_ios(node, model_description, ctx)
             try:
                 slave = FMU2Slave(
                     guid=model_description.guid,
@@ -177,17 +214,133 @@ class FmuRuntimePlugin:
                 stop = _float_attr(node, "fmu.stop_time", 1.0e9)
                 slave.setupExperiment(startTime=start, stopTime=stop)
                 slave.enterInitializationMode()
+                apply_params_on_init = bool(ctx.options.get("fmu_apply_parameters_on_init", False))
+                g_vr = None
+                for _pn, _vr in parameter_input_map:
+                    if str(_pn) == "g":
+                        g_vr = int(_vr)
+                        break
+                if g_vr is not None:
+                    try:
+                        g_before = float(slave.getReal([g_vr])[0])
+                    except Exception:
+                        g_before = None
+                if parameter_input_map and apply_params_on_init:
+                    ws = ctx.scalar_workspace or {}
+                    inc = compiled.incoming.get(uid, {})
+                    nb = compiled.node_by_id
+                    pvrs: list[int] = []
+                    pvals: list[float] = []
+                    ppins: list[str] = []
+                    psrc: list[dict[str, object]] = []
+                    for pin_name, vr in parameter_input_map:
+                        raw = inc.get(pin_name)
+                        if raw is None:
+                            psrc.append({"pin": str(pin_name), "source": None})
+                            continue
+                        try:
+                            src_id, _src_pin = unpack_wire_ref(raw)
+                            src_node = nb.get(src_id)
+                        except Exception:
+                            src_node = None
+                        if isinstance(src_node, Variable):
+                            stim_kind = ""
+                            try:
+                                stim_kind = str(src_node.get("stim_kind") or "").strip().lower()
+                            except Exception:
+                                stim_kind = ""
+                            if stim_kind not in ("", "none", "off"):
+                                stim_v = _var_stim_value_t0(src_node)
+                                if stim_v is not None:
+                                    pvals.append(float(stim_v))
+                                    psrc.append(
+                                        {
+                                            "pin": str(pin_name),
+                                            "source_name": str(src_node.name),
+                                            "source_type": "stim_preferred",
+                                            "source_value": float(stim_v),
+                                            "stim_kind": stim_kind,
+                                            "stim_p0": float(src_node.get("stim_p0") or 0.0),
+                                        }
+                                    )
+                                    pvrs.append(vr)
+                                    ppins.append(str(pin_name))
+                                    continue
+                            try:
+                                pvals.append(float(src_node.value))
+                                psrc.append(
+                                    {
+                                        "pin": str(pin_name),
+                                        "source_name": str(src_node.name),
+                                        "source_type": "Variable.value",
+                                        "source_value": float(src_node.value),
+                                        "stim_kind": str(src_node.get("stim_kind") or ""),
+                                        "stim_p0": float(src_node.get("stim_p0") or 0.0),
+                                    }
+                                )
+                            except (TypeError, ValueError):
+                                # Stimulation-driven parameters may not have a numeric ``value`` yet at init-time.
+                                try:
+                                    from synarius_core.dataflow_sim.stimulation import stimulation_value
+
+                                    stim_v = stimulation_value(src_node, 0.0)
+                                    pvals.append(float(stim_v) if stim_v is not None else 0.0)
+                                    psrc.append(
+                                        {
+                                            "pin": str(pin_name),
+                                            "source_name": str(src_node.name),
+                                            "source_type": "stim_fallback",
+                                            "source_value": float(stim_v) if stim_v is not None else 0.0,
+                                            "stim_kind": str(src_node.get("stim_kind") or ""),
+                                            "stim_p0": float(src_node.get("stim_p0") or 0.0),
+                                        }
+                                    )
+                                except Exception:
+                                    pvals.append(0.0)
+                                    psrc.append(
+                                        {
+                                            "pin": str(pin_name),
+                                            "source_name": str(src_node.name),
+                                            "source_type": "fallback_zero",
+                                            "source_value": 0.0,
+                                        }
+                                    )
+                        else:
+                            ws_val = scalar_ws_read(ws, raw, node_by_id=nb)
+                            pvals.append(ws_val)
+                            psrc.append(
+                                {
+                                    "pin": str(pin_name),
+                                    "source_name": str(getattr(src_node, "name", "")),
+                                    "source_type": "workspace_read",
+                                    "source_value": float(ws_val),
+                                }
+                            )
+                        pvrs.append(vr)
+                        ppins.append(str(pin_name))
+                    # Preserve default sign semantics specifically for gravity parameter ``g``.
+                    if g_vr is not None and g_before is not None and g_before < 0.0:
+                        for i, vr in enumerate(pvrs):
+                            if int(vr) != int(g_vr):
+                                continue
+                            if pvals[i] > 0.0:
+                                pvals[i] = -float(abs(pvals[i]))
+                            break
+                    if pvrs:
+                        slave.setReal(pvrs, pvals)
+                elif parameter_input_map and not apply_params_on_init:
+                    pass
                 slave.exitInitializationMode()
             except Exception as exc:  # noqa: BLE001
                 ctx.diagnostics.append(f"FMU runtime: instantiate/setup failed for {node.name!r}: {exc}")
                 shutil.rmtree(unzip_dir, ignore_errors=True)
                 continue
 
-            input_map, output_map = _resolve_ios(node, model_description, ctx)
             self._bundles[uid] = _Bundle(
                 slave=slave,
                 unzip_dir=unzip_dir,
                 input_map=input_map,
+                parameter_input_map=parameter_input_map,
                 output_map=output_map,
                 node_label=node.name,
                 start_time=float(start),
@@ -277,7 +430,7 @@ def _float_attr(node: Any, path: str, default: float) -> float:
 
 def _resolve_ios(
     node: Any, model_description: Any, ctx: Any
-) -> tuple[list[tuple[str, int]], list[tuple[str, int]]]:
+) -> tuple[list[tuple[str, int]], list[tuple[str, int]], list[tuple[str, int]]]:
     try:
         pmap = node.get("pin")
     except Exception:
@@ -298,6 +451,7 @@ def _resolve_ios(
         pass
 
     inputs: list[tuple[str, int]] = []
+    params: list[tuple[str, int]] = []
     outputs: list[tuple[str, int]] = []
 
     for pin_name in sorted(pmap.keys()):
@@ -347,9 +501,9 @@ def _resolve_ios(
         vr = int(vr_raw)
         caus_v = str((vm or {}).get("causality") or "").lower()
         caus_md = str(getattr(mv, "causality", None) or "").strip().lower() if mv is not None else ""
-        # FMI parameters are static/tunable model parameters; do not drive them each simulation step.
-        # This avoids overwriting FMU defaults (e.g. BouncingBall g/e) via accidental diagram wiring.
-        if caus_v == "parameter" or caus_md == "parameter":
+        is_param = caus_v == "parameter" or caus_md == "parameter"
+        if is_param:
+            params.append((pin_s, vr))
             continue
         if is_out:
             outputs.append((pin_s, vr))
@@ -357,11 +511,12 @@ def _resolve_ios(
             inputs.append((pin_s, vr))
 
     outputs.sort(key=lambda x: x[0])
+    params.sort(key=lambda x: x[0])
     if not outputs and pmap:
         ctx.diagnostics.append(
             f"FMU runtime: {node.name!r} resolved zero output pins; downstream wires will stay at zero."
         )
-    return inputs, outputs
+    return inputs, outputs, params
 
 
 def _fmu_var_row(node: Any, pin_name: str) -> dict[str, Any] | None:

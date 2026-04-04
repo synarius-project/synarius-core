@@ -7,11 +7,7 @@ connector source pin.
 
 from __future__ import annotations
 
-import json
 import math
-from pathlib import Path
-import sys
-import time
 
 _UI_SCALE = 70.0 / 100.0
 _MODULE = 15.0 * _UI_SCALE
@@ -39,38 +35,6 @@ ELEMENTARY_LIB_HEADER_GRAPHIC_HEIGHT_SCENE = 0.0
 _VARIABLE_WIDTH = 6.0 * _MODULE
 _VARIABLE_HEIGHT = 2.0 * _MODULE
 _OPERATOR_SIZE = 3.0 * _MODULE
-
-
-def _agent_debug_log_ccbe80(*, run_id: str, hypothesis_id: str, message: str, data: dict[str, object]) -> None:
-    #region agent log
-    try:
-        payload = {
-            "sessionId": "ccbe80",
-            "runId": run_id,
-            "hypothesisId": hypothesis_id,
-            "location": "diagram_geometry.py:import_phase",
-            "message": message,
-            "data": data,
-            "timestamp": int(time.time() * 1000),
-        }
-        with Path("debug-ccbe80.log").open("a", encoding="utf-8") as f:
-            f.write(json.dumps(payload, ensure_ascii=False) + "\n")
-    except Exception:
-        pass
-    #endregion
-
-
-_agent_debug_log_ccbe80(
-    run_id="pre-fix",
-    hypothesis_id="H_STALE_MODULE",
-    message="diagram_geometry_module_loaded",
-    data={
-        "module_file": __file__,
-        "python": sys.version.split()[0],
-        "has_graphic_height_symbol": "ELEMENTARY_LIB_HEADER_GRAPHIC_HEIGHT_SCENE" in globals(),
-        "graphic_height_value": float(ELEMENTARY_LIB_HEADER_GRAPHIC_HEIGHT_SCENE),
-    },
-)
 
 
 def _approx_text_metrics(name: str, pixel_size: float) -> tuple[float, float]:

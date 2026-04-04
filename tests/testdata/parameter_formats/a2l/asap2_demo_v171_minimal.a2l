@@ -1,0 +1,41 @@
+/ASAP2_VERSION 1 71
+
+/begin PROJECT SynariusA2LDemo "Minimal ASAM MCD-2 MC example for CDFX dependency tests"
+  /begin HEADER "Synarius parameter format test data"
+    VERSION "1.0.0"
+  /end HEADER
+
+  /begin MODULE DemoModule "Demo ECU module"
+    /begin MOD_PAR "Module parameters"
+      EPK "SYNARIUS_DEMO_EPK"
+      CPU_TYPE "GENERIC"
+      SYSTEM_CONSTANT "ECU_NAME" "SynariusDemoECU"
+      /begin MEMORY_SEGMENT CALRAM "Calibration RAM" DATA FLASH INTERN 0x00010000 0x00001000 -1 -1 -1 -1 -1
+      /end MEMORY_SEGMENT
+    /end MOD_PAR
+
+    /begin MOD_COMMON "Common settings"
+      BYTE_ORDER MSB_LAST
+      ALIGNMENT_BYTE 1
+      ALIGNMENT_WORD 2
+      ALIGNMENT_LONG 4
+      ALIGNMENT_FLOAT32_IEEE 4
+      ALIGNMENT_FLOAT64_IEEE 8
+    /end MOD_COMMON
+
+    /begin COMPU_METHOD CM_LINEAR "%8.3" LINEAR "%5.1" "unitless"
+      COEFFS_LINEAR 1 0
+    /end COMPU_METHOD
+
+    /begin RECORD_LAYOUT RL_SCALAR
+      FNC_VALUES 1 FLOAT32_IEEE COLUMN_DIR DIRECT
+    /end RECORD_LAYOUT
+
+    /begin CHARACTERISTIC P_MAX_00000 "Example calibration value" VALUE 0x00010000 RL_SCALAR 0 CM_LINEAR 0 100000
+    /end CHARACTERISTIC
+
+    /begin MEASUREMENT Meas_Demo "Example measurement" FLOAT32_IEEE CM_LINEAR 0 100000
+      ECU_ADDRESS 0x00020000
+    /end MEASUREMENT
+  /end MODULE
+/end PROJECT
