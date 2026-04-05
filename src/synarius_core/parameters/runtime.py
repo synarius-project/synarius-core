@@ -1,11 +1,14 @@
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Callable
+from typing import Any, Sequence
 from uuid import UUID
+
+import numpy as np
 
 from synarius_core.model.data_model import ComplexInstance, Model
 
-from .repository import ParametersRepository
+from .repository import CalParamImportPrepared, ParametersRepository
 
 
 class ParameterRuntime:
@@ -152,6 +155,94 @@ class ParameterRuntime:
         )
         self._install_cal_param_virtuals(node)
 
+    def register_cal_param_node_from_import(
+        self,
+        node: ComplexInstance,
+        *,
+        data_set_id: UUID | None,
+        category: str,
+        display_name: str = "",
+        unit: str = "",
+        source_identifier: str = "",
+        values: np.ndarray,
+        axes: dict[int, np.ndarray],
+        axis_names: dict[int, str],
+        axis_units: dict[int, str],
+    ) -> None:
+        """Register a cal_param and write payload in one repository path (e.g. DCM bulk import)."""
+        if node.id is None:
+            raise ValueError("cal_param node must be attached before registration")
+        if data_set_id is None:
+            active = self.active_dataset()
+            if active is None or active.id is None:
+                raise ValueError("cal_param requires a data_set (active_dataset_name is None)")
+            data_set_id = active.id
+        node.attribute_dict["type"] = "MODEL.CAL_PARAM"
+        if "data_set_id" not in node.attribute_dict:
+            dict.__setitem__(node.attribute_dict, "data_set_id", (str(data_set_id), None, None, True, False))
+        self.repo.write_cal_param_import(
+            parameter_id=node.id,
+            data_set_id=data_set_id,
+            name=node.name,
+            category=category,
+            display_name=str(display_name),
+            unit=str(unit),
+            source_identifier=str(source_identifier),
+            values=values,
+            axes=axes,
+            axis_names=axis_names,
+            axis_units=axis_units,
+        )
+        self._install_cal_param_virtuals(node)
+
+    def register_cal_param_nodes_bulk_from_import(
+        self,
+        pairs: Sequence[tuple[ComplexInstance, CalParamImportPrepared]],
+        *,
+        cooperative_hook: Callable[[], None] | None = None,
+        write_progress_hook: Callable[[int, int], None] | None = None,
+        virtual_progress_hook: Callable[[int, int], None] | None = None,
+        virtual_progress_every: int = 80,
+    ) -> None:
+        """Attach path already done; set model attrs, one transactional DuckDB bulk write, then virtuals."""
+        if not pairs:
+            return
+        for node, prep in pairs:
+            if node.id is None:
+                raise ValueError("cal_param node must be attached before registration")
+            if node.id != prep.parameter_id:
+                raise ValueError("prepared row parameter_id must match attached node id")
+            node.attribute_dict["type"] = "MODEL.CAL_PARAM"
+            if "data_set_id" not in node.attribute_dict:
+                dict.__setitem__(
+                    node.attribute_dict,
+                    "data_set_id",
+                    (str(prep.data_set_id), None, None, True, False),
+                )
+        prepared = [p for _, p in pairs]
+        with self.repo.transaction():
+            self.repo.write_cal_params_import_bulk(
+                prepared,
+                cooperative_hook=cooperative_hook,
+                write_progress_hook=write_progress_hook,
+            )
+        total = len(pairs)
+        if cooperative_hook is not None:
+            cooperative_hook()
+        if virtual_progress_hook is not None:
+            virtual_progress_hook(0, total)
+        for k, (node, _) in enumerate(pairs):
+            self._install_cal_param_virtuals(node)
+            done = k + 1
+            if virtual_progress_hook is not None and virtual_progress_every > 0 and done % virtual_progress_every == 0:
+                virtual_progress_hook(done, total)
+            if cooperative_hook is not None and virtual_progress_every > 0 and done % virtual_progress_every == 0:
+                cooperative_hook()
+        if virtual_progress_hook is not None:
+            virtual_progress_hook(total, total)
+        if cooperative_hook is not None:
+            cooperative_hook()
+
     # ---- cal_param virtual attrs -----------------------------------------
 
     def _install_cal_param_virtuals(self, node: ComplexInstance) -> None:
@@ -207,6 +298,20 @@ class ParameterRuntime:
                 axis_key,
                 getter=lambda i=axis_idx: self.repo.get_axis_values(pid, i).tolist(),
                 setter=lambda v, i=axis_idx: self.repo.set_axis_values(pid, i, v),
+                writable=True,
+            )
+            axis_name_key = f"x{axis_idx + 1}_name"
+            node.attribute_dict.set_virtual(
+                axis_name_key,
+                getter=lambda i=axis_idx: self.repo.get_record(pid).axis_names.get(i, ""),
+                setter=lambda v, i=axis_idx: self.repo.set_axis_meta_field(pid, i, "axis_name", v),
+                writable=True,
+            )
+            axis_unit_key = f"x{axis_idx + 1}_unit"
+            node.attribute_dict.set_virtual(
+                axis_unit_key,
+                getter=lambda i=axis_idx: self.repo.get_record(pid).axis_units.get(i, ""),
+                setter=lambda v, i=axis_idx: self.repo.set_axis_meta_field(pid, i, "axis_unit", v),
                 writable=True,
             )
         node.attribute_dict.set_virtual(

@@ -1519,11 +1519,10 @@ class Model:
 
         if isinstance(obj, Variable):
             self.variable_registry.increment(obj.name)
+            self.sync_variable_mapping_entries()
         elif isinstance(obj, ComplexInstance):
             for child in list(obj.children):
                 self._assign_subtree(child, parent=obj, reserve_existing=reserve_existing)
-        if isinstance(obj, (Variable, ComplexInstance)):
-            self.sync_variable_mapping_entries()
 
     def delete(self, container: ComplexInstance, obj_id: UUID) -> None:
         victim = container.get_child(str(obj_id))

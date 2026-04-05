@@ -24,6 +24,8 @@ General Concepts
 - The controller maintains a current selection set for batch operations.
 - Recommended root aliases: ``@latent``, ``@signals``, ``@objects``, ``@main``, ``@controller``.
 
+Interactive hosts (for example ParaWiz console) **SHOULD** surface protocol-level failures—unknown commands, invalid arguments, unresolved references—as a **single human-readable message line** (the controller’s error text), without attaching a full implementation stack trace. Lower-level or unexpected errors may still be logged with diagnostics according to host policy.
+
 Attribute Meta-Properties
 -------------------------
 
@@ -355,14 +357,24 @@ Target Resolution
 Output Semantics
 ~~~~~~~~~~~~~~~~
 
-- Output is plain text.
-- Type-specific formatters may provide richer summaries for known domain objects.
-- When no specialized formatter exists, implementations may return a minimal generic object summary.
+- Output is plain text (may span multiple lines).
+- The minimal controller provides type-specific summaries for the following targets (non-exhaustive; other hosts may extend):
+
+  * **Model root** (``ComplexInstance`` equal to the model root): name, child count, model type if set.
+  * **Kenngrößen** (``MODEL.CAL_PARAM``): name, category (``VALUE``, ``CURVE``, ``MAP``, …), parameter and dataset IDs, dataset name, optional display name, comment, unit, conversion, source, numeric format and value semantics; for text parameters, the text value; otherwise a value summary (shape, min/max/mean for numeric arrays) and per-axis support point ranges where axes exist.
+  * **Parameter dataset** (``MODEL.PARAMETER_DATA_SET``): name, id, optional source path/format/hash, direct child count in the model tree.
+  * **Parameter data container** (``MODEL.PARAMETER_DATA_CONTAINER``): name, id, container type, child count.
+  * **Parameter datasets folder** (``MODEL.PARAMETER_DATA_SETS``): entry count.
+  * **Model parameters area** (``MODEL.PARAMETERS``): active dataset name if set, direct child count.
+  * **Variable**, **BasicOperator**, **Connector**, **DataViewer**, **ElementaryInstance** (including ``fmu.path`` when present), generic **ComplexInstance**, **VariableMappingEntry**.
+- When no specialized formatter exists, implementations may return a minimal generic object summary (for example Python type and name).
 
 Error Behavior
 ~~~~~~~~~~~~~~
 
+- ``print`` with more than one argument is invalid.
 - If the target cannot be resolved, the command fails with a clear error.
+- For a ``MODEL.CAL_PARAM`` node without repository data, the command fails with a clear error.
 - If printing is unsupported for a resolved target, behavior must be consistent and explicit (clear error or documented generic fallback).
 
 ``select`` and ``del``

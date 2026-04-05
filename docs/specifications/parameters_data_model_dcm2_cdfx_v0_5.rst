@@ -105,3 +105,37 @@ Current core implementation aligns with this hardening as follows:
 * ndarray reads at repository boundaries are returned as copy or explicitly read-only arrays.
 * Guarded mutation path remains mandatory for persistent changes.
 
+
+7. DCM metadata mapping (implemented subset)
+--------------------------------------------
+
+The current DCM importer intentionally supports a focused subset for deterministic ingest.
+Besides numeric payload and axis points, the following metadata is mapped:
+
+* Parameter-level
+
+  * ``LANGNAME`` -> ``display_name``
+  * ``EINHEIT`` -> ``unit``
+  * ``VAR`` / ``FUNKTION`` -> ``source_identifier`` (concatenated key/value parts)
+
+* Axis-level
+
+  * ``LANGNAME_X`` -> axis 0 name
+  * ``LANGNAME_Y`` -> axis 1 name
+  * ``EINHEIT_X`` -> axis 0 unit
+  * ``EINHEIT_Y`` -> axis 1 unit
+
+Storage/model surface:
+
+* Parameter metadata remains in ``parameters_all``.
+* Axis metadata is stored in ``parameter_axis_meta`` keyed by ``(parameter_id, axis_index)``.
+* Runtime virtual attributes expose these fields as
+  ``xN_name`` and ``xN_unit`` (with ``N`` in ``1..5``) for CLI/GUI parity.
+
+Behavior rules:
+
+* Missing metadata is represented as empty string.
+* Metadata parse is case-insensitive by keyword.
+* For malformed recognized metadata lines (keyword without value), parsing fails deterministically.
+* Existing DCM files without metadata remain valid and import-compatible.
+

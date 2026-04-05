@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID
 
+import numpy as np
+
 from synarius_core.library import LibraryCatalog
 from synarius_core.plugins.registry import PluginRegistry
 from synarius_core.model import (
@@ -34,6 +36,7 @@ from synarius_core.model.connector_routing import bends_absolute_to_relative
 from synarius_core.model.diagram_geometry import instance_source_pin_diagram_xy
 from synarius_core.fmu.bind import FmuBindError, bind_elementary_from_fmu_path, bind_fmu_inspection_to_elementary
 from synarius_core.fmu.inspection import FmuInspectError, inspect_fmu_path
+from synarius_core.parameters.repository import ParameterRecord
 
 UndoRedoPair = tuple[list[str], list[str]]
 
@@ -145,6 +148,8 @@ class MinimalController:
             return self._cmd_set(args)
         if cmd == "get":
             return self._cmd_get(args)
+        if cmd == "print":
+            return self._cmd_print(args)
         if cmd == "del":
             return self._cmd_del(args)
         if cmd == "mv":
@@ -996,6 +1001,223 @@ class MinimalController:
             target = self._resolve_path(path)
             return str(self._get_attr(target, attr))
         return str(self._get_attr(self.current, target_expr))
+
+    def _node_model_type(self, obj: Any) -> str | None:
+        if not isinstance(obj, BaseObject):
+            return None
+        try:
+            t = obj.get("type")
+        except Exception:
+            return None
+        return str(t) if t is not None else None
+
+    @staticmethod
+    def _format_ndarray_summary(arr: np.ndarray) -> str:
+        if arr.size == 0:
+            return "(leer)"
+        flat = np.asarray(arr, dtype=np.float64).ravel()
+        if flat.size == 1:
+            v = float(flat[0])
+            return f"{v:g}" if np.isfinite(v) else str(v)
+        finite = flat[np.isfinite(flat)]
+        if finite.size == 0:
+            return f"shape={tuple(arr.shape)} (keine endlichen Werte)"
+        return (
+            f"shape={tuple(arr.shape)} min={float(np.min(finite)):g} max={float(np.max(finite)):g} "
+            f"mean={float(np.mean(finite)):g}"
+        )
+
+    def _format_print_cal_param(self, rec: ParameterRecord) -> str:
+        lines: list[str] = [
+            f"Kenngröße: {rec.name}",
+            f"Kategorie: {rec.category}",
+            f"Parameter-ID: {rec.parameter_id}",
+            f"Datensatz-ID: {rec.data_set_id}",
+        ]
+        ds_name = self.model.parameter_runtime().repo.get_dataset_name(rec.data_set_id)
+        if ds_name:
+            lines.append(f"Datensatz: {ds_name}")
+        if rec.display_name:
+            lines.append(f"Anzeigename: {rec.display_name}")
+        if rec.comment:
+            lines.append(f"Kommentar: {rec.comment}")
+        if rec.unit:
+            lines.append(f"Einheit: {rec.unit}")
+        if rec.conversion_ref:
+            lines.append(f"Umrechnung: {rec.conversion_ref}")
+        if rec.source_identifier:
+            lines.append(f"Quelle: {rec.source_identifier}")
+        lines.append(f"Numerikformat: {rec.numeric_format}  Wertsemantik: {rec.value_semantics}")
+        if rec.is_text:
+            lines.append(f"Textwert: {rec.text_value!r}")
+            return "\n".join(lines)
+        lines.append(f"Werte: {self._format_ndarray_summary(rec.values)}")
+        for i in range(rec.values.ndim):
+            ax = rec.axes.get(i)
+            an = rec.axis_names.get(i, "") or "?"
+            au = rec.axis_units.get(i, "") or ""
+            if ax is not None and ax.size:
+                a0, a1 = float(ax[0]), float(ax[-1])
+                lines.append(
+                    f"Achse {i + 1} ({an}) [{au}]: Stützstellen={ax.size}  "
+                    f"Bereich={a0:g} … {a1:g}"
+                )
+            else:
+                lines.append(f"Achse {i + 1} ({an}) [{au}]: (keine Stützstellen)")
+        return "\n".join(lines)
+
+    def _format_print_dataset_node(self, obj: ComplexInstance) -> str:
+        lines = [
+            f"Datensatz: {obj.name}",
+            f"Typ: PARAMETER_DATA_SET",
+            f"ID: {obj.id}",
+        ]
+        try:
+            sp = obj.get("source_path")
+            sf = obj.get("source_format")
+            sh = obj.get("source_hash")
+            if sp:
+                lines.append(f"Quelldatei: {sp}")
+            if sf:
+                lines.append(f"Format: {sf}")
+            if sh:
+                lines.append(f"Hash: {sh}")
+        except Exception:
+            pass
+        n_children = len(obj.children) if obj.children else 0
+        lines.append(f"Direkte Kinder im Modell: {n_children}")
+        return "\n".join(lines)
+
+    def _format_print_data_container(self, obj: ComplexInstance) -> str:
+        lines = [f"Datencontainer: {obj.name}", f"ID: {obj.id}"]
+        try:
+            ct = obj.get("container_type")
+            lines.append(f"Container-Typ: {ct}")
+        except Exception:
+            pass
+        n_children = len(obj.children) if obj.children else 0
+        lines.append(f"Kinder: {n_children}")
+        return "\n".join(lines)
+
+    def _cmd_print(self, args: list[str]) -> str:
+        if len(args) > 1:
+            raise CommandError("print erwartet höchstens ein Ziel (Referenz oder Kontext).")
+        if args:
+            target: Any = self._resolve_ref(args[0])
+        else:
+            target = self.current
+
+        mt = self._node_model_type(target)
+
+        if isinstance(target, ComplexInstance) and target is self.model.root:
+            lines = [
+                f"Modellroot: {target.name}",
+                f"Kinder: {len(target.children) if target.children else 0}",
+            ]
+            if mt:
+                lines.append(f"Typ: {mt}")
+            return "\n".join(lines)
+
+        if isinstance(target, ComplexInstance) and mt == "MODEL.CAL_PARAM":
+            pid = getattr(target, "id", None)
+            if not isinstance(pid, UUID):
+                raise CommandError("CalParam ohne gültige UUID.")
+            try:
+                rec = self.model.parameter_runtime().repo.get_record(pid)
+            except ValueError as exc:
+                raise CommandError(f"Kein Parameterdatensatz im Repository: {exc}") from exc
+            return self._format_print_cal_param(rec)
+
+        if isinstance(target, ComplexInstance) and mt == "MODEL.PARAMETER_DATA_SET":
+            return self._format_print_dataset_node(target)
+
+        if isinstance(target, ComplexInstance) and mt == "MODEL.PARAMETER_DATA_CONTAINER":
+            return self._format_print_data_container(target)
+
+        if isinstance(target, ComplexInstance) and mt == "MODEL.PARAMETER_DATA_SETS":
+            n = len(target.children) if target.children else 0
+            return f"Parameter-Datensätze (Ordner): {n} Einträge"
+
+        if isinstance(target, ComplexInstance) and mt == "MODEL.PARAMETERS":
+            lines = ["Parameter-Bereich (Modell)"]
+            try:
+                adn = target.get("active_dataset_name")
+                if adn:
+                    lines.append(f"Aktiver Datensatz: {adn}")
+            except Exception:
+                pass
+            lines.append(f"Direkte Kinder: {len(target.children) if target.children else 0}")
+            return "\n".join(lines)
+
+        if isinstance(target, Variable):
+            lines = [
+                f"Variable: {target.name}",
+                f"type_key: {target.type_key}",
+                f"Wert: {self._format_value(target.value)}",
+                f"Einheit: {target.unit!r}",
+                f"Position: ({target.position.x:g}, {target.position.y:g})",
+            ]
+            for k in ("stim_kind", "stim_p0", "stim_p1", "stim_p2", "stim_p3"):
+                try:
+                    lines.append(f"{k}: {self._format_value(target.get(k))}")
+                except Exception:
+                    pass
+            return "\n".join(lines)
+
+        if isinstance(target, BasicOperator):
+            return (
+                f"BasicOperator: {target.name}\n"
+                f"Operation: {target.operation.value}\n"
+                f"type_key: {target.type_key}"
+            )
+
+        if isinstance(target, Connector):
+            return (
+                f"Connector: {target.name}\n"
+                f"Quelle: {target.source_instance_id} pin={target.source_pin!r}\n"
+                f"Ziel: {target.target_instance_id} pin={target.target_pin!r}\n"
+                f"directed: {target.directed}"
+            )
+
+        if isinstance(target, DataViewer):
+            try:
+                vid = target.get("dataviewer_id")
+            except Exception:
+                vid = "?"
+            return f"DataViewer: {target.name}  dataviewer_id={vid}"
+
+        if isinstance(target, ElementaryInstance):
+            lines = [f"ElementaryInstance: {target.name}", f"type_key: {target.type_key}"]
+            try:
+                fp = target.get("fmu.path")
+                if fp:
+                    lines.append(f"fmu.path: {fp}")
+            except Exception:
+                pass
+            lines.append(f"Position: ({target.position.x:g}, {target.position.y:g})")
+            return "\n".join(lines)
+
+        if isinstance(target, ComplexInstance):
+            lines = [
+                f"ComplexInstance: {target.name}",
+                f"ID: {target.id}",
+            ]
+            if mt:
+                lines.append(f"Typ: {mt}")
+            lines.append(f"Kinder: {len(target.children) if target.children else 0}")
+            return "\n".join(lines)
+
+        if isinstance(target, VariableMappingEntry):
+            lines = [f"VariableMappingEntry: {target.name}"]
+            try:
+                ms = self.model.variable_mapped_signal(target.name)
+                lines.append(f"zugeordnetes Signal: {self._format_value(ms)}")
+            except Exception:
+                pass
+            return "\n".join(lines)
+
+        name = getattr(target, "name", None)
+        return f"{type(target).__name__}" + (f": {name}" if name else "")
 
     def _cmd_del(self, args: list[str]) -> str:
         if not args:

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from io import BytesIO
 import json
-from typing import Any
+from typing import Any, Callable, Iterator, Sequence
 from uuid import UUID
 
 import numpy as np
@@ -39,10 +40,38 @@ class ParameterRecord:
     values: np.ndarray = field(default_factory=lambda: np.zeros((), dtype=np.float64))
     text_value: str = ""
     axes: dict[int, np.ndarray] = field(default_factory=dict)
+    axis_names: dict[int, str] = field(default_factory=dict)
+    axis_units: dict[int, str] = field(default_factory=dict)
 
     @property
     def is_text(self) -> bool:
         return str(self.category).upper() in _TEXT_CATEGORIES
+
+
+@dataclass(frozen=True, slots=True)
+class ParameterTableSummary:
+    """Lightweight row for parameter lists (no full value/axis blob reads except 0-D scalars)."""
+
+    name: str
+    category: str
+    value_label: str
+
+
+@dataclass(slots=True)
+class CalParamImportPrepared:
+    """Validated numeric cal-param row ready for DuckDB (single or bulk insert)."""
+
+    parameter_id: UUID
+    data_set_id: UUID
+    name: str
+    category: str
+    display_name: str
+    unit: str
+    source_identifier: str
+    values: np.ndarray
+    resolved_axes: dict[int, np.ndarray]
+    axis_names: dict[int, str]
+    axis_units: dict[int, str]
 
 
 class ParametersRepository:
@@ -107,6 +136,29 @@ class ParametersRepository:
             );
             """
         )
+        self._con.execute(
+            """
+            CREATE TABLE IF NOT EXISTS parameter_axis_meta (
+                parameter_id TEXT NOT NULL,
+                axis_index INTEGER NOT NULL,
+                axis_name TEXT NOT NULL,
+                axis_unit TEXT NOT NULL,
+                PRIMARY KEY(parameter_id, axis_index)
+            );
+            """
+        )
+
+    @contextmanager
+    def transaction(self) -> Iterator[None]:
+        """Group DuckDB writes; rolls back on exception."""
+        self._con.execute("BEGIN TRANSACTION")
+        try:
+            yield
+        except Exception:
+            self._con.execute("ROLLBACK")
+            raise
+        else:
+            self._con.execute("COMMIT")
 
     # ---- dataset ----------------------------------------------------------
 
@@ -177,6 +229,264 @@ class ParametersRepository:
         )
         self._write_numeric_array(parameter_id, np.zeros((), dtype=np.float64))
         self._con.execute("DELETE FROM parameter_axes WHERE parameter_id = ?", [str(parameter_id)])
+        self._con.execute("DELETE FROM parameter_axis_meta WHERE parameter_id = ?", [str(parameter_id)])
+
+    def get_parameter_table_summary(self, parameter_id: UUID) -> ParameterTableSummary:
+        """Name, category, and table label without loading large ``values_npy`` (only shape_json + scalar blob)."""
+        row = self._con.execute(
+            """
+            SELECT p.name, p.category, p.text_value, pv.shape_json
+            FROM parameters_all p
+            JOIN parameter_values pv ON p.parameter_id = pv.parameter_id
+            WHERE p.parameter_id = ?
+            """,
+            [str(parameter_id)],
+        ).fetchone()
+        if row is None:
+            raise ValueError("unknown parameter_id")
+        name = str(row[0])
+        category = str(row[1])
+        text_value = str(row[2])
+        shape_json = str(row[3])
+        cat_u = category.upper()
+        if cat_u in _TEXT_CATEGORIES:
+            return ParameterTableSummary(name=name, category=category, value_label=text_value)
+        shape_tuple = tuple(int(x) for x in json.loads(shape_json))
+        if len(shape_tuple) == 0:
+            blob_row = self._con.execute(
+                "SELECT values_npy FROM parameter_values WHERE parameter_id = ?",
+                [str(parameter_id)],
+            ).fetchone()
+            if blob_row is None:
+                return ParameterTableSummary(name=name, category=category, value_label="nan")
+            v = self._from_npy_blob(blob_row[0])
+            return ParameterTableSummary(name=name, category=category, value_label=repr(float(v.item())))
+        if len(shape_tuple) == 1:
+            label = f"{shape_tuple[0]} Values"
+        else:
+            label = f"{'X'.join(str(dim) for dim in shape_tuple)} Values"
+        return ParameterTableSummary(name=name, category=category, value_label=label)
+
+    def prepare_cal_param_import_row(
+        self,
+        *,
+        parameter_id: UUID,
+        data_set_id: UUID,
+        name: str,
+        category: str,
+        display_name: str = "",
+        unit: str = "",
+        source_identifier: str = "",
+        values: np.ndarray,
+        axes: dict[int, np.ndarray],
+        axis_names: dict[int, str],
+        axis_units: dict[int, str],
+    ) -> CalParamImportPrepared:
+        """Validate numeric import payload and resolve axes (shared by single-row and bulk import)."""
+        cat = str(category).upper()
+        if cat in _TEXT_CATEGORIES:
+            raise ValueError("write_cal_param_import is for numeric parameters only")
+        vals = np.asarray(values, dtype=np.float64)
+        nd = int(vals.ndim)
+        for k in axes:
+            ki = int(k)
+            if ki < 0 or ki >= nd:
+                raise ValueError("axis index out of bounds for values shape")
+        resolved_axes: dict[int, np.ndarray] = {}
+        for idx in range(nd):
+            if idx in axes:
+                resolved_axes[idx] = np.asarray(axes[idx], dtype=np.float64).reshape(-1)
+            else:
+                resolved_axes[idx] = np.arange(int(vals.shape[idx]), dtype=np.float64)
+        for axis_idx in range(nd):
+            a = resolved_axes[axis_idx]
+            need = int(vals.shape[axis_idx])
+            if int(a.shape[0]) != need:
+                raise ValueError("axis length must match parameter shape on this axis")
+            if a.shape[0] >= 2 and not bool(np.all(np.diff(a) > 0.0)):
+                raise ValueError("axis values must be strictly monotonic increasing")
+        vals_copy = np.array(vals, copy=True)
+        return CalParamImportPrepared(
+            parameter_id=parameter_id,
+            data_set_id=data_set_id,
+            name=str(name),
+            category=cat,
+            display_name=str(display_name),
+            unit=str(unit),
+            source_identifier=str(source_identifier),
+            values=vals_copy,
+            resolved_axes={int(k): np.array(v, copy=True) for k, v in resolved_axes.items()},
+            axis_names={int(k): str(v) for k, v in axis_names.items()},
+            axis_units={int(k): str(v) for k, v in axis_units.items()},
+        )
+
+    def write_cal_param_import(
+        self,
+        *,
+        parameter_id: UUID,
+        data_set_id: UUID,
+        name: str,
+        category: str,
+        display_name: str = "",
+        unit: str = "",
+        source_identifier: str = "",
+        values: np.ndarray,
+        axes: dict[int, np.ndarray],
+        axis_names: dict[int, str],
+        axis_units: dict[int, str],
+    ) -> None:
+        """Insert or replace one numeric cal parameter in few DB round-trips (no ``get_record`` per field)."""
+        if not self._exists_data_set(data_set_id):
+            raise ValueError("parameter registration requires existing data_set_id")
+        prep = self.prepare_cal_param_import_row(
+            parameter_id=parameter_id,
+            data_set_id=data_set_id,
+            name=name,
+            category=category,
+            display_name=display_name,
+            unit=unit,
+            source_identifier=source_identifier,
+            values=values,
+            axes=axes,
+            axis_names=axis_names,
+            axis_units=axis_units,
+        )
+        self._write_cal_param_import_prepared(prep)
+
+    def _write_cal_param_import_prepared(self, prep: CalParamImportPrepared) -> None:
+        pid = prep.parameter_id
+        nd = int(prep.values.ndim)
+        self._con.execute(
+            """
+            INSERT OR REPLACE INTO parameters_all(
+                parameter_id, data_set_id, name, category, display_name, comment, unit,
+                conversion_ref, source_identifier, numeric_format, value_semantics, text_value
+            ) VALUES (?, ?, ?, ?, ?, '', ?, '', ?, 'decimal', 'physical', '')
+            """,
+            [
+                str(pid),
+                str(prep.data_set_id),
+                prep.name,
+                prep.category,
+                prep.display_name,
+                prep.unit,
+                prep.source_identifier,
+            ],
+        )
+        self._write_numeric_array(pid, prep.values)
+        self._con.execute("DELETE FROM parameter_axes WHERE parameter_id = ?", [str(pid)])
+        self._con.execute("DELETE FROM parameter_axis_meta WHERE parameter_id = ?", [str(pid)])
+        for axis_idx in range(nd):
+            self._write_axis_values(pid, axis_idx, prep.resolved_axes[axis_idx])
+        for axis_idx in range(nd):
+            an = str(prep.axis_names.get(axis_idx, "") or "")
+            au = str(prep.axis_units.get(axis_idx, "") or "")
+            self._write_axis_meta(pid, axis_idx, an, au)
+
+    def write_cal_params_import_bulk(
+        self,
+        rows: Sequence[CalParamImportPrepared],
+        *,
+        chunk_size: int = 1000,
+        cooperative_hook: Callable[[], None] | None = None,
+        write_progress_hook: Callable[[int, int], None] | None = None,
+    ) -> None:
+        """Bulk insert many new numeric cal parameters (few DuckDB round-trips per chunk).
+
+        Preconditions: every ``parameter_id`` is new to the repository (no prior axis rows);
+        all rows share the same ``data_set_id`` and the data set already exists.
+        Skips per-row ``DELETE`` on axis tables (not needed for fresh UUIDs).
+        Uses plain ``INSERT`` (not ``INSERT OR REPLACE``) for speed; duplicates raise DB errors.
+
+        ``write_progress_hook(done, total)`` is called after each chunk (``done`` = rows written so far).
+        ``cooperative_hook`` is invoked after each major ``executemany`` so UIs can ``processEvents``.
+        """
+        if not rows:
+            return
+        ds0 = rows[0].data_set_id
+        if not self._exists_data_set(ds0):
+            raise ValueError("parameter registration requires existing data_set_id")
+        for r in rows:
+            if r.data_set_id != ds0:
+                raise ValueError("bulk cal-param import requires a single data_set_id")
+        for start in range(0, len(rows), chunk_size):
+            chunk = rows[start : start + chunk_size]
+            pa_rows = [
+                (
+                    str(r.parameter_id),
+                    str(r.data_set_id),
+                    r.name,
+                    r.category,
+                    r.display_name,
+                    r.unit,
+                    r.source_identifier,
+                )
+                for r in chunk
+            ]
+            self._con.executemany(
+                """
+                INSERT INTO parameters_all(
+                    parameter_id, data_set_id, name, category, display_name, comment, unit,
+                    conversion_ref, source_identifier, numeric_format, value_semantics, text_value
+                ) VALUES (?, ?, ?, ?, ?, '', ?, '', ?, 'decimal', 'physical', '')
+                """,
+                pa_rows,
+            )
+            if cooperative_hook is not None:
+                cooperative_hook()
+            pv_rows = [
+                (str(r.parameter_id), json.dumps(list(r.values.shape)), self._to_npy_blob(r.values))
+                for r in chunk
+            ]
+            self._con.executemany(
+                """
+                INSERT INTO parameter_values(parameter_id, shape_json, values_npy)
+                VALUES (?, ?, ?)
+                """,
+                pv_rows,
+            )
+            if cooperative_hook is not None:
+                cooperative_hook()
+            axes_batch: list[tuple[str, int, bytes]] = []
+            meta_batch: list[tuple[str, int, str, str]] = []
+            for r in chunk:
+                nd = int(r.values.ndim)
+                for axis_idx in range(nd):
+                    a = r.resolved_axes[axis_idx]
+                    axes_batch.append((str(r.parameter_id), int(axis_idx), self._to_npy_blob(a)))
+                    meta_batch.append(
+                        (
+                            str(r.parameter_id),
+                            int(axis_idx),
+                            str(r.axis_names.get(axis_idx, "") or ""),
+                            str(r.axis_units.get(axis_idx, "") or ""),
+                        )
+                    )
+            if axes_batch:
+                self._con.executemany(
+                    """
+                    INSERT INTO parameter_axes(parameter_id, axis_index, values_npy)
+                    VALUES (?, ?, ?)
+                    """,
+                    axes_batch,
+                )
+                if cooperative_hook is not None:
+                    cooperative_hook()
+            if meta_batch:
+                self._con.executemany(
+                    """
+                    INSERT INTO parameter_axis_meta(parameter_id, axis_index, axis_name, axis_unit)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    meta_batch,
+                )
+                if cooperative_hook is not None:
+                    cooperative_hook()
+            end_exclusive = start + len(chunk)
+            if write_progress_hook is not None:
+                write_progress_hook(end_exclusive, len(rows))
+            if cooperative_hook is not None:
+                cooperative_hook()
 
     def get_record(self, parameter_id: UUID) -> ParameterRecord:
         row = self._con.execute(
@@ -195,6 +505,7 @@ class ParametersRepository:
         text_value = str(row[10])
         values = self._read_numeric_array(parameter_id)
         axes = self._read_axes(parameter_id)
+        axis_names, axis_units = self._read_axis_meta(parameter_id)
         return ParameterRecord(
             parameter_id=parameter_id,
             data_set_id=data_set_id,
@@ -210,6 +521,8 @@ class ParametersRepository:
             values=values,
             text_value=text_value,
             axes=axes,
+            axis_names=axis_names,
+            axis_units=axis_units,
         )
 
     def _ensure_dataset_ownership(self, rec: ParameterRecord) -> None:
@@ -245,6 +558,23 @@ class ParametersRepository:
             return
         raise ValueError(f"unsupported metadata field: {field_name}")
 
+    def set_axis_meta_field(self, parameter_id: UUID, axis_idx: int, field_name: str, value: Any) -> None:
+        rec = self.get_record(parameter_id)
+        self._ensure_dataset_ownership(rec)
+        if rec.is_text:
+            raise ValueError("axis metadata is not writable for text parameters")
+        if axis_idx < 0 or axis_idx >= rec.values.ndim:
+            raise ValueError("axis index out of bounds for current shape")
+        if field_name not in {"axis_name", "axis_unit"}:
+            raise ValueError(f"unsupported axis metadata field: {field_name}")
+        cur_name = rec.axis_names.get(axis_idx, "")
+        cur_unit = rec.axis_units.get(axis_idx, "")
+        if field_name == "axis_name":
+            cur_name = str(value)
+        else:
+            cur_unit = str(value)
+        self._write_axis_meta(parameter_id, axis_idx, cur_name, cur_unit)
+
     def _set_category(self, rec: ParameterRecord, new_category: str) -> None:
         old_text = rec.is_text
         new_text = new_category in _TEXT_CATEGORIES
@@ -255,6 +585,7 @@ class ParametersRepository:
                 raise ValueError("invalid category migration: numeric -> text with non-zero numeric payload")
         if new_text:
             self._con.execute("DELETE FROM parameter_axes WHERE parameter_id = ?", [str(rec.parameter_id)])
+            self._con.execute("DELETE FROM parameter_axis_meta WHERE parameter_id = ?", [str(rec.parameter_id)])
             self._write_numeric_array(rec.parameter_id, np.zeros((), dtype=np.float64))
         else:
             cur = self._read_numeric_array(rec.parameter_id)
@@ -370,6 +701,10 @@ class ParametersRepository:
                     "DELETE FROM parameter_axes WHERE parameter_id = ? AND axis_index = ?",
                     [str(parameter_id), int(idx)],
                 )
+                self._con.execute(
+                    "DELETE FROM parameter_axis_meta WHERE parameter_id = ? AND axis_index = ?",
+                    [str(parameter_id), int(idx)],
+                )
         for idx in range(ndim):
             target = int(values.shape[idx])
             old = axes.get(idx)
@@ -446,6 +781,27 @@ class ParametersRepository:
         for idx, blob in rows:
             out[int(idx)] = self._from_npy_blob(blob).reshape(-1)
         return out
+
+    def _write_axis_meta(self, parameter_id: UUID, axis_idx: int, axis_name: str, axis_unit: str) -> None:
+        self._con.execute(
+            """
+            INSERT OR REPLACE INTO parameter_axis_meta(parameter_id, axis_index, axis_name, axis_unit)
+            VALUES (?, ?, ?, ?)
+            """,
+            [str(parameter_id), int(axis_idx), str(axis_name), str(axis_unit)],
+        )
+
+    def _read_axis_meta(self, parameter_id: UUID) -> tuple[dict[int, str], dict[int, str]]:
+        rows = self._con.execute(
+            "SELECT axis_index, axis_name, axis_unit FROM parameter_axis_meta WHERE parameter_id = ?",
+            [str(parameter_id)],
+        ).fetchall()
+        names: dict[int, str] = {}
+        units: dict[int, str] = {}
+        for idx, axis_name, axis_unit in rows:
+            names[int(idx)] = str(axis_name)
+            units[int(idx)] = str(axis_unit)
+        return names, units
 
     def get_dataset_name(self, data_set_id: UUID) -> str | None:
         row = self._con.execute("SELECT name FROM data_sets WHERE id = ?", [str(data_set_id)]).fetchone()

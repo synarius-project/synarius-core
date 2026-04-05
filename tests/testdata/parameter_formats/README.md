@@ -15,8 +15,8 @@ Diese Beispieldateien wurden auf Basis oeffentlich zugaenglicher Quellen erstell
   - https://raw.githubusercontent.com/muellerj/mat2dcm/master/spec/kennfeld_spec.m
 
 Dateien:
-- `dcm/dcm2_minimal_all_types_once.dcm`
-- `dcm/dcm2_maximal_10000_kennwerte.dcm`
+- `dcm/dcm2_minimal_all_types_once.dcm` (mehrere Kennlinien/-felder mit unterschiedlichen Rastern und nichtlinearen Achsen/Werten)
+- `dcm/dcm2_maximal_10000_kennwerte.dcm` (Stress: 10k Kenngroessen; Kennlinien/-felder variabel gross und nichtlinear — neu erzeugen mit `synarius-core/scripts/generate_dcm2_maximal_stress.py`)
 - `dcm/dcm2_invalid_example.dcm`
 - `cdfx/cdfx_minimal_all_types_once.cdfx`
 - `cdfx/cdfx_maximal_10000_kennwerte.cdfx`

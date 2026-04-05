@@ -37,6 +37,10 @@ class ParametersModelTest(unittest.TestCase):
         ctl.execute(f"set {p}.x1_axis [1,2]")
         axis = (ctl.execute(f"get {p}.x1_axis") or "").strip()
         self.assertEqual(axis, "[1.0, 2.0]")
+        ctl.execute(f'set {p}.x1_name "Engine speed"')
+        ctl.execute(f'set {p}.x1_unit rpm')
+        self.assertEqual((ctl.execute(f"get {p}.x1_name") or "").strip(), "Engine speed")
+        self.assertEqual((ctl.execute(f"get {p}.x1_unit") or "").strip(), "rpm")
 
     def test_axis_must_be_strictly_monotonic(self) -> None:
         ctl = MinimalController()
@@ -59,6 +63,20 @@ class ParametersModelTest(unittest.TestCase):
         self.assertFalse(bool(arr.flags.writeable))
         with self.assertRaises(ValueError):
             arr[0, 0] = 42.0
+
+    def test_print_cal_param_and_dataset(self) -> None:
+        ctl = MinimalController()
+        ctl.execute("cd parameters/data_sets")
+        ds = (ctl.execute("new DataSet DsPrint") or "").strip()
+        p = (ctl.execute(f"new CalParam Kprint data_set={ds} category=CURVE") or "").strip()
+        ctl.execute(f"set {p}.shape [3]")
+        out = (ctl.execute(f"print {p}") or "").strip()
+        self.assertIn("Kenngröße: Kprint", out)
+        self.assertIn("Kategorie: CURVE", out)
+        self.assertIn("Werte:", out)
+        ds_out = (ctl.execute(f"print {ds}") or "").strip()
+        self.assertIn("Datensatz: DsPrint", ds_out)
+        self.assertIn("PARAMETER_DATA_SET", ds_out)
 
 
 if __name__ == "__main__":
