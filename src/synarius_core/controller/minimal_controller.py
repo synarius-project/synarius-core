@@ -81,6 +81,8 @@ class MinimalController:
         self.dcm_import_progress_hook: Callable[[int, int], None] | None = None
         self.dcm_import_phase_hook: Callable[[str, int], None] | None = None
         self.dcm_import_cooperative_hook: Callable[[], None] | None = None
+        #: Optional (idx 1-based, total) während ``cp @selection`` — z. B. GUI processEvents.
+        self.cp_selection_progress_hook: Callable[[int, int], None] | None = None
 
     def _rebind_model_root_aliases(self) -> None:
         """Point workspace aliases at ``self.model.root`` after the model instance was replaced (e.g. ``load``)."""
@@ -1439,17 +1441,40 @@ class MinimalController:
         copied_dst_ids: list[str] = []
         copied_src_ids: list[str] = []
         skipped_details: list[dict[str, str]] = []
-        for src in selected:
+        n_sel = len(selected)
+        hook = self.cp_selection_progress_hook
+        if hook is not None and n_sel:
+            try:
+                hook(0, n_sel)
+            except Exception:
+                pass
+
+        prefetch_ids = [s.id for s in selected if s.id is not None]
+        src_rec_map: dict[UUID, ParameterRecord] = (
+            rt.repo.get_records_for_ids(prefetch_ids) if prefetch_ids else {}
+        )
+
+        pairs: list[tuple[UUID, UUID]] = []
+        pair_names: list[str] = []
+
+        for idx, src in enumerate(selected):
+            if hook is not None and idx % 50 == 0:
+                try:
+                    hook(idx + 1, n_sel)
+                except Exception:
+                    pass
             src_id = src.id
             if src_id is None:
                 skipped += 1
                 skipped_details.append({"name": src.name, "reason": "missing_source_id"})
                 continue
-            try:
-                src_rec = rt.repo.get_record(src_id)
-            except Exception as exc:
-                errors.append(f"{src.name}: {exc}")
-                continue
+            src_rec = src_rec_map.get(src_id)
+            if src_rec is None:
+                try:
+                    src_rec = rt.repo.get_record(src_id)
+                except Exception as exc:
+                    errors.append(f"{src.name}: {exc}")
+                    continue
             if src_rec.data_set_id == target_ds.id:
                 skipped += 1
                 skipped_details.append({"name": src.name, "reason": "source_already_in_target_dataset"})
@@ -1471,14 +1496,38 @@ class MinimalController:
                 skipped += 1
                 skipped_details.append({"name": src.name, "reason": "target_parameter_has_no_id"})
                 continue
-            try:
-                rt.repo.copy_cal_param_payload(src_id, dst.id)
-                copied += 1
-                if dst.id is not None:
-                    copied_dst_ids.append(str(dst.id))
+            pairs.append((src_id, dst.id))
+            pair_names.append(src.name)
+
+        if pairs:
+
+            def _bulk_progress(done: int, _n_pairs: int) -> None:
+                if hook is None:
+                    return
+                try:
+                    hook(min(done, n_sel), n_sel)
+                except Exception:
+                    pass
+
+            bulk_errs = rt.repo.copy_cal_param_payload_bulk(
+                pairs,
+                chunk_size=300,
+                cooperative_hook=None,
+                progress_hook=_bulk_progress,
+            )
+            for (src_id, dst_id), name, err in zip(pairs, pair_names, bulk_errs, strict=True):
+                if err:
+                    errors.append(f"{name}: {err}")
+                else:
+                    copied += 1
+                    copied_dst_ids.append(str(dst_id))
                     copied_src_ids.append(str(src_id))
-            except Exception as exc:
-                errors.append(f"{src.name}: {exc}")
+
+        if hook is not None and n_sel:
+            try:
+                hook(n_sel, n_sel)
+            except Exception:
+                pass
 
         return json.dumps(
             {

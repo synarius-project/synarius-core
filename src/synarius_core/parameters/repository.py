@@ -563,6 +563,224 @@ class ParametersRepository:
             axis_units={int(k): str(v) for k, v in src.axis_units.items()},
         )
 
+    def _write_cal_param_import_prepared_replace_bulk_chunk(self, chunk: Sequence[CalParamImportPrepared]) -> None:
+        """Replace numeric cal-params (existing ``parameter_id``): OR REPLACE meta/values, clear axes, reinsert axes."""
+        if not chunk:
+            return
+        with self.transaction():
+            pa_rows = [
+                (
+                    str(r.parameter_id),
+                    str(r.data_set_id),
+                    r.name,
+                    r.category,
+                    r.display_name,
+                    r.unit,
+                    r.source_identifier,
+                )
+                for r in chunk
+            ]
+            self._con.executemany(
+                """
+                INSERT OR REPLACE INTO parameters_all(
+                    parameter_id, data_set_id, name, category, display_name, comment, unit,
+                    conversion_ref, source_identifier, numeric_format, value_semantics, text_value
+                ) VALUES (?, ?, ?, ?, ?, '', ?, '', ?, 'decimal', 'physical', '')
+                """,
+                pa_rows,
+            )
+            pv_rows = [
+                (str(r.parameter_id), json.dumps(list(r.values.shape)), self._to_npy_blob(r.values))
+                for r in chunk
+            ]
+            self._con.executemany(
+                """
+                INSERT OR REPLACE INTO parameter_values(parameter_id, shape_json, values_npy)
+                VALUES (?, ?, ?)
+                """,
+                pv_rows,
+            )
+            pids = [str(r.parameter_id) for r in chunk]
+            ph = ",".join(["?"] * len(pids))
+            self._con.execute(f"DELETE FROM parameter_axes WHERE parameter_id IN ({ph})", pids)
+            self._con.execute(f"DELETE FROM parameter_axis_meta WHERE parameter_id IN ({ph})", pids)
+            axes_batch: list[tuple[str, int, bytes]] = []
+            meta_batch: list[tuple[str, int, str, str]] = []
+            for r in chunk:
+                nd = int(r.values.ndim)
+                for axis_idx in range(nd):
+                    a = r.resolved_axes[axis_idx]
+                    axes_batch.append((str(r.parameter_id), int(axis_idx), self._to_npy_blob(a)))
+                    meta_batch.append(
+                        (
+                            str(r.parameter_id),
+                            int(axis_idx),
+                            str(r.axis_names.get(axis_idx, "") or ""),
+                            str(r.axis_units.get(axis_idx, "") or ""),
+                        )
+                    )
+            if axes_batch:
+                self._con.executemany(
+                    """
+                    INSERT INTO parameter_axes(parameter_id, axis_index, values_npy)
+                    VALUES (?, ?, ?)
+                    """,
+                    axes_batch,
+                )
+            if meta_batch:
+                self._con.executemany(
+                    """
+                    INSERT INTO parameter_axis_meta(parameter_id, axis_index, axis_name, axis_unit)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    meta_batch,
+                )
+
+    def copy_cal_param_payload_bulk(
+        self,
+        pairs: Sequence[tuple[UUID, UUID]],
+        *,
+        chunk_size: int = 300,
+        cooperative_hook: Callable[[], None] | None = None,
+        progress_hook: Callable[[int, int], None] | None = None,
+    ) -> list[str]:
+        """Copy many cal-param payloads (same semantics as :meth:`copy_cal_param_payload`).
+
+        Returns one string per input pair: ``""`` if that copy succeeded, otherwise an error message.
+        Independent pairs behave like sequential single copies (no single all-or-nothing transaction).
+        """
+        n = len(pairs)
+        if n == 0:
+            return []
+        src_ids = list(dict.fromkeys(sid for sid, _ in pairs))
+        dst_ids = list(dict.fromkeys(did for _, did in pairs))
+        src_map = self.get_records_for_ids(src_ids)
+        dst_map = self.get_records_for_ids(dst_ids)
+
+        errs: list[str] = [""] * n
+        text_updates: list[
+            tuple[
+                str,
+                str,
+                str,
+                str,
+                str,
+                str,
+                str,
+                str,
+                str,
+                str,
+            ]
+        ] = []
+        text_indices: list[int] = []
+        numeric_items: list[tuple[int, CalParamImportPrepared]] = []
+
+        for i, (sid, did) in enumerate(pairs):
+            src = src_map.get(sid)
+            dst = dst_map.get(did)
+            if src is None or dst is None:
+                errs[i] = "unknown parameter_id"
+                continue
+            try:
+                self._ensure_dataset_ownership(src)
+                self._ensure_dataset_ownership(dst)
+            except Exception as exc:
+                errs[i] = str(exc)
+                continue
+
+            if src.is_text:
+                if not dst.is_text:
+                    errs[i] = "cannot copy text parameter onto numeric parameter"
+                    continue
+                text_updates.append(
+                    (
+                        src.category,
+                        src.display_name,
+                        src.comment,
+                        src.unit,
+                        dst.conversion_ref,
+                        dst.source_identifier,
+                        src.numeric_format,
+                        src.value_semantics,
+                        src.text_value,
+                        str(did),
+                    )
+                )
+                text_indices.append(i)
+                continue
+            if dst.is_text:
+                errs[i] = "cannot copy numeric parameter onto text parameter"
+                continue
+
+            axes = {int(k): np.array(v, dtype=np.float64, copy=True) for k, v in src.axes.items()}
+            try:
+                prep = self.prepare_cal_param_import_row(
+                    parameter_id=did,
+                    data_set_id=dst.data_set_id,
+                    name=dst.name,
+                    category=src.category,
+                    display_name=src.display_name,
+                    unit=src.unit,
+                    source_identifier=dst.source_identifier,
+                    values=np.array(src.values, dtype=np.float64, copy=True),
+                    axes=axes,
+                    axis_names={int(k): str(v) for k, v in src.axis_names.items()},
+                    axis_units={int(k): str(v) for k, v in src.axis_units.items()},
+                )
+            except Exception as exc:
+                errs[i] = str(exc)
+                continue
+            numeric_items.append((i, prep))
+
+        done = 0
+        if text_updates:
+            try:
+                self._con.executemany(
+                    """
+                    UPDATE parameters_all SET category = ?, display_name = ?, comment = ?, unit = ?,
+                        conversion_ref = ?, source_identifier = ?, numeric_format = ?, value_semantics = ?,
+                        text_value = ?
+                    WHERE parameter_id = ?
+                    """,
+                    text_updates,
+                )
+            except Exception:
+                for ti in text_indices:
+                    sid, did = pairs[ti]
+                    try:
+                        self.copy_cal_param_payload(sid, did)
+                    except Exception as exc2:
+                        errs[ti] = str(exc2)
+            else:
+                done += len(text_updates)
+            if cooperative_hook is not None:
+                cooperative_hook()
+            if progress_hook is not None:
+                progress_hook(done, n)
+
+        if numeric_items:
+            cs = max(1, int(chunk_size))
+            for start in range(0, len(numeric_items), cs):
+                chunk_items = numeric_items[start : start + cs]
+                preps = [p for _, p in chunk_items]
+                try:
+                    self._write_cal_param_import_prepared_replace_bulk_chunk(preps)
+                except Exception:
+                    for pair_idx, prep in chunk_items:
+                        try:
+                            self._write_cal_param_import_prepared(prep)
+                        except Exception as exc:
+                            errs[pair_idx] = str(exc)
+                    done += sum(1 for pair_idx, _ in chunk_items if not errs[pair_idx])
+                else:
+                    done += len(chunk_items)
+                if cooperative_hook is not None:
+                    cooperative_hook()
+                if progress_hook is not None:
+                    progress_hook(done, n)
+
+        return errs
+
     def write_cal_params_import_bulk(
         self,
         rows: Sequence[CalParamImportPrepared],
