@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from io import BytesIO
 import json
+from pathlib import Path
 from typing import Any, Callable, Iterator, Sequence
 from uuid import UUID
 
@@ -12,6 +13,34 @@ import numpy as np
 
 
 _TEXT_CATEGORIES = {"ASCII"}
+
+
+def _rounded_float_ndarray_bytes(a: np.ndarray) -> bytes:
+    """Gleiche Rundungslogik wie ParaWiz/MainWindow für stabilen Wertevergleich (nicht Roh-Blob-Bytes)."""
+    x = np.asarray(a, dtype=np.float64).reshape(-1)
+    if x.size == 0:
+        return b""
+    y = np.round(x, 10)
+    y = np.where(np.abs(y) < 1e-15, 0.0, y)
+    return y.tobytes()
+
+
+def _parameter_va_fingerprint_semantic(
+    *,
+    category: str,
+    text_value: str,
+    values_arr: np.ndarray,
+    axes_by_idx: dict[int, np.ndarray],
+) -> tuple:
+    """Wert-/Achsen-Fingerprint wie :meth:`ParameterRecord`-basierte ParaWiz-Logik (ohne vollen Record)."""
+    cat_u = str(category).upper()
+    if cat_u in _TEXT_CATEGORIES:
+        return ("t", cat_u, str(text_value))
+    v = np.asarray(values_arr, dtype=np.float64)
+    ax_parts: list[tuple[int, bytes]] = []
+    for idx in sorted(axes_by_idx.keys()):
+        ax_parts.append((int(idx), _rounded_float_ndarray_bytes(axes_by_idx[idx])))
+    return ("n", v.shape, _rounded_float_ndarray_bytes(v), tuple(ax_parts))
 
 
 def _now_iso() -> str:
@@ -55,6 +84,18 @@ class ParameterTableSummary:
     name: str
     category: str
     value_label: str
+
+
+@dataclass(frozen=True, slots=True)
+class ParameterCompareFingerprints:
+    """Cross-dataset styling: semantischer VA-Fingerprint (gerundete Werte/Achsen), Meta ohne Provenance-Noise."""
+
+    va_fingerprint: tuple
+    category: str
+    is_text: bool
+    numeric_format: str
+    value_semantics: str
+    source_identifier: str
 
 
 @dataclass(slots=True)
@@ -205,6 +246,22 @@ class ParametersRepository:
             ],
         )
 
+    def delete_data_set_and_parameters(self, data_set_id: UUID) -> int:
+        """Remove all parameters belonging to ``data_set_id`` and the ``data_sets`` row. Returns parameter count."""
+        rows = self._con.execute(
+            "SELECT parameter_id FROM parameters_all WHERE data_set_id = ?",
+            [str(data_set_id)],
+        ).fetchall()
+        pid_strs = [str(r[0]) for r in rows]
+        with self.transaction():
+            for pid_s in pid_strs:
+                self._con.execute("DELETE FROM parameter_axis_meta WHERE parameter_id = ?", [pid_s])
+                self._con.execute("DELETE FROM parameter_axes WHERE parameter_id = ?", [pid_s])
+                self._con.execute("DELETE FROM parameter_values WHERE parameter_id = ?", [pid_s])
+                self._con.execute("DELETE FROM parameters_all WHERE parameter_id = ?", [pid_s])
+            self._con.execute("DELETE FROM data_sets WHERE id = ?", [str(data_set_id)])
+        return len(pid_strs)
+
     # ---- parameter records ------------------------------------------------
 
     def register_parameter(
@@ -262,10 +319,81 @@ class ParametersRepository:
             v = self._from_npy_blob(blob_row[0])
             return ParameterTableSummary(name=name, category=category, value_label=repr(float(v.item())))
         if len(shape_tuple) == 1:
-            label = f"{shape_tuple[0]} Values"
-        else:
-            label = f"{'X'.join(str(dim) for dim in shape_tuple)} Values"
+            n0 = int(shape_tuple[0])
+            if n0 == 0:
+                return ParameterTableSummary(name=name, category=category, value_label="0 Values")
+            return ParameterTableSummary(
+                name=name, category=category, value_label=f"{n0} Values"
+            )
+        label = f"{'X'.join(str(dim) for dim in shape_tuple)} Values"
         return ParameterTableSummary(name=name, category=category, value_label=label)
+
+    def get_parameter_table_summaries_for_ids(self, parameter_ids: Sequence[UUID]) -> dict[UUID, ParameterTableSummary]:
+        """Batch variant of :meth:`get_parameter_table_summary` (few round-trips; scalars batched)."""
+        out: dict[UUID, ParameterTableSummary] = {}
+        ids = list(dict.fromkeys(parameter_ids))
+        if not ids:
+            return out
+        chunk_size = 500
+        for start in range(0, len(ids), chunk_size):
+            chunk = ids[start : start + chunk_size]
+            placeholders = ",".join(["?"] * len(chunk))
+            rows = self._con.execute(
+                f"""
+                SELECT p.parameter_id, p.name, p.category, p.text_value, pv.shape_json
+                FROM parameters_all p
+                JOIN parameter_values pv ON p.parameter_id = pv.parameter_id
+                WHERE p.parameter_id IN ({placeholders})
+                """,
+                [str(x) for x in chunk],
+            ).fetchall()
+            scalar_ids: list[UUID] = []
+            scalar_meta: dict[UUID, tuple[str, str]] = {}
+            for row in rows:
+                pid = UUID(str(row[0]))
+                name = str(row[1])
+                category = str(row[2])
+                text_value = str(row[3])
+                shape_json = str(row[4])
+                cat_u = category.upper()
+                if cat_u in _TEXT_CATEGORIES:
+                    out[pid] = ParameterTableSummary(name=name, category=category, value_label=text_value)
+                    continue
+                shape_tuple = tuple(int(x) for x in json.loads(shape_json))
+                if len(shape_tuple) == 0:
+                    scalar_ids.append(pid)
+                    scalar_meta[pid] = (name, category)
+                    continue
+                if len(shape_tuple) == 1:
+                    n0 = int(shape_tuple[0])
+                    if n0 == 0:
+                        out[pid] = ParameterTableSummary(name=name, category=category, value_label="0 Values")
+                    else:
+                        out[pid] = ParameterTableSummary(
+                            name=name, category=category, value_label=f"{n0} Values"
+                        )
+                    continue
+                label = f"{'X'.join(str(dim) for dim in shape_tuple)} Values"
+                out[pid] = ParameterTableSummary(name=name, category=category, value_label=label)
+            if not scalar_ids:
+                continue
+            ph2 = ",".join(["?"] * len(scalar_ids))
+            blob_rows = self._con.execute(
+                f"SELECT parameter_id, values_npy FROM parameter_values WHERE parameter_id IN ({ph2})",
+                [str(x) for x in scalar_ids],
+            ).fetchall()
+            for bid, blob in blob_rows:
+                pid = UUID(str(bid))
+                meta = scalar_meta.get(pid)
+                if meta is None:
+                    continue
+                name, category = meta
+                if blob is None:
+                    out[pid] = ParameterTableSummary(name=name, category=category, value_label="nan")
+                else:
+                    v = self._from_npy_blob(blob)
+                    out[pid] = ParameterTableSummary(name=name, category=category, value_label=repr(float(v.item())))
+        return out
 
     def prepare_cal_param_import_row(
         self,
@@ -382,6 +510,58 @@ class ParametersRepository:
             an = str(prep.axis_names.get(axis_idx, "") or "")
             au = str(prep.axis_units.get(axis_idx, "") or "")
             self._write_axis_meta(pid, axis_idx, an, au)
+
+    def copy_cal_param_payload(self, source_parameter_id: UUID, dest_parameter_id: UUID) -> None:
+        """Copy values, axes and relevant metadata from one cal-param row to another (other data_set).
+
+        Es werden **keine** gemeinsamen NumPy-Buffer zwischen Quelle und Ziel in der DB abgelegt:
+        ``get_record`` lädt getrennte Arrays; hier werden explizit Kopien gebaut; ``write_cal_param_import``
+        serialisiert mit eigenen Blobs pro ``parameter_id`` (INSERT OR REPLACE nur für die Ziel-UUID).
+        """
+        src = self.get_record(source_parameter_id)
+        dst = self.get_record(dest_parameter_id)
+        self._ensure_dataset_ownership(src)
+        self._ensure_dataset_ownership(dst)
+        if src.is_text:
+            if not dst.is_text:
+                raise ValueError("cannot copy text parameter onto numeric parameter")
+            self._con.execute(
+                """
+                UPDATE parameters_all SET category = ?, display_name = ?, comment = ?, unit = ?,
+                    conversion_ref = ?, source_identifier = ?, numeric_format = ?, value_semantics = ?,
+                    text_value = ?
+                WHERE parameter_id = ?
+                """,
+                [
+                    src.category,
+                    src.display_name,
+                    src.comment,
+                    src.unit,
+                    dst.conversion_ref,
+                    dst.source_identifier,
+                    src.numeric_format,
+                    src.value_semantics,
+                    src.text_value,
+                    str(dest_parameter_id),
+                ],
+            )
+            return
+        if dst.is_text:
+            raise ValueError("cannot copy numeric parameter onto text parameter")
+        axes = {int(k): np.array(v, dtype=np.float64, copy=True) for k, v in src.axes.items()}
+        self.write_cal_param_import(
+            parameter_id=dest_parameter_id,
+            data_set_id=dst.data_set_id,
+            name=dst.name,
+            category=src.category,
+            display_name=src.display_name,
+            unit=src.unit,
+            source_identifier=dst.source_identifier,
+            values=np.array(src.values, dtype=np.float64, copy=True),
+            axes=axes,
+            axis_names={int(k): str(v) for k, v in src.axis_names.items()},
+            axis_units={int(k): str(v) for k, v in src.axis_units.items()},
+        )
 
     def write_cal_params_import_bulk(
         self,
@@ -524,6 +704,182 @@ class ParametersRepository:
             axis_names=axis_names,
             axis_units=axis_units,
         )
+
+    def get_compare_fingerprints_for_ids(
+        self, parameter_ids: Sequence[UUID]
+    ) -> dict[UUID, ParameterCompareFingerprints]:
+        """Cross-dataset UI styling: semantische VA-Fingerprints (wie ParaWiz-Vergleichsdialog)."""
+        uniq: list[UUID] = []
+        seen: set[str] = set()
+        for p in parameter_ids:
+            s = str(p)
+            if s not in seen:
+                seen.add(s)
+                uniq.append(p)
+        if not uniq:
+            return {}
+
+        out: dict[UUID, ParameterCompareFingerprints] = {}
+        chunk_size = 500
+        for start in range(0, len(uniq), chunk_size):
+            chunk = uniq[start : start + chunk_size]
+            ph = ",".join(["?"] * len(chunk))
+            args = [str(p) for p in chunk]
+
+            rows = self._con.execute(
+                f"""
+                SELECT p.parameter_id, p.category, p.text_value, p.source_identifier,
+                       p.numeric_format, p.value_semantics, pv.values_npy
+                FROM parameters_all p
+                JOIN parameter_values pv ON p.parameter_id = pv.parameter_id
+                WHERE p.parameter_id IN ({ph})
+                """,
+                args,
+            ).fetchall()
+
+            ax_rows = self._con.execute(
+                f"""
+                SELECT parameter_id, axis_index, values_npy
+                FROM parameter_axes
+                WHERE parameter_id IN ({ph})
+                """,
+                args,
+            ).fetchall()
+            ax_by_arr: dict[str, dict[int, np.ndarray]] = {}
+            for pid_s, axis_idx, blob in ax_rows:
+                arr = self._from_npy_blob(blob).reshape(-1)
+                ax_by_arr.setdefault(str(pid_s), {})[int(axis_idx)] = arr
+
+            for row in rows:
+                pid = UUID(str(row[0]))
+                category = str(row[1])
+                text_value = str(row[2])
+                source_identifier = str(row[3])
+                numeric_format = str(row[4])
+                value_semantics = str(row[5])
+                blob_v = row[6]
+                cat_u = category.upper()
+                is_text = cat_u in _TEXT_CATEGORIES
+                if is_text:
+                    va_fp = ("t", cat_u, str(text_value))
+                    out[pid] = ParameterCompareFingerprints(
+                        va_fingerprint=va_fp,
+                        category=category,
+                        is_text=True,
+                        numeric_format=numeric_format,
+                        value_semantics=value_semantics,
+                        source_identifier=source_identifier,
+                    )
+                else:
+                    if blob_v is None or len(blob_v) == 0:
+                        v = np.zeros((), dtype=np.float64)
+                    else:
+                        v = self._from_npy_blob(blob_v)
+                    axes_dict = dict(ax_by_arr.get(str(pid), {}))
+                    va_fp = _parameter_va_fingerprint_semantic(
+                        category=category,
+                        text_value=text_value,
+                        values_arr=v,
+                        axes_by_idx=axes_dict,
+                    )
+                    out[pid] = ParameterCompareFingerprints(
+                        va_fingerprint=va_fp,
+                        category=category,
+                        is_text=False,
+                        numeric_format=numeric_format,
+                        value_semantics=value_semantics,
+                        source_identifier=source_identifier,
+                    )
+        return out
+
+    def get_records_for_ids(self, parameter_ids: Sequence[UUID]) -> dict[UUID, ParameterRecord]:
+        """Load many parameters with batched queries (avoids N× round-trips for cross-dataset UI styling)."""
+        uniq: list[UUID] = []
+        seen: set[str] = set()
+        for p in parameter_ids:
+            s = str(p)
+            if s not in seen:
+                seen.add(s)
+                uniq.append(p)
+        if not uniq:
+            return {}
+
+        out: dict[UUID, ParameterRecord] = {}
+        chunk_size = 500
+        for start in range(0, len(uniq), chunk_size):
+            chunk = uniq[start : start + chunk_size]
+            ph = ",".join(["?"] * len(chunk))
+            args = [str(p) for p in chunk]
+
+            pa_rows = self._con.execute(
+                f"""
+                SELECT parameter_id, data_set_id, name, category, display_name, comment, unit,
+                       conversion_ref, source_identifier, numeric_format, value_semantics, text_value
+                FROM parameters_all
+                WHERE parameter_id IN ({ph})
+                """,
+                args,
+            ).fetchall()
+
+            pv_rows = self._con.execute(
+                f"SELECT parameter_id, values_npy FROM parameter_values WHERE parameter_id IN ({ph})",
+                args,
+            ).fetchall()
+            pv_map: dict[str, bytes] = {str(r[0]): r[1] for r in pv_rows}
+
+            ax_rows = self._con.execute(
+                f"SELECT parameter_id, axis_index, values_npy FROM parameter_axes WHERE parameter_id IN ({ph})",
+                args,
+            ).fetchall()
+            axes_by_pid: dict[str, dict[int, np.ndarray]] = {}
+            for pid_s, axis_idx, blob in ax_rows:
+                pid_s = str(pid_s)
+                axes_by_pid.setdefault(pid_s, {})[int(axis_idx)] = self._from_npy_blob(blob).reshape(-1)
+
+            meta_rows = self._con.execute(
+                f"""
+                SELECT parameter_id, axis_index, axis_name, axis_unit
+                FROM parameter_axis_meta
+                WHERE parameter_id IN ({ph})
+                """,
+                args,
+            ).fetchall()
+            names_by_pid: dict[str, dict[int, str]] = {}
+            units_by_pid: dict[str, dict[int, str]] = {}
+            for pid_s, axis_idx, axis_name, axis_unit in meta_rows:
+                pid_s = str(pid_s)
+                names_by_pid.setdefault(pid_s, {})[int(axis_idx)] = str(axis_name)
+                units_by_pid.setdefault(pid_s, {})[int(axis_idx)] = str(axis_unit)
+
+            for row in pa_rows:
+                pid = UUID(str(row[0]))
+                pid_s = str(pid)
+                blob_v = pv_map.get(pid_s)
+                values = self._from_npy_blob(blob_v) if blob_v is not None else np.zeros((), dtype=np.float64)
+                category = str(row[3]).upper()
+                text_value = str(row[11])
+                axes = dict(axes_by_pid.get(pid_s, {}))
+                axis_names = dict(names_by_pid.get(pid_s, {}))
+                axis_units = dict(units_by_pid.get(pid_s, {}))
+                out[pid] = ParameterRecord(
+                    parameter_id=pid,
+                    data_set_id=UUID(str(row[1])),
+                    name=str(row[2]),
+                    category=category,
+                    display_name=str(row[4]),
+                    comment=str(row[5]),
+                    unit=str(row[6]),
+                    conversion_ref=str(row[7]),
+                    source_identifier=str(row[8]),
+                    numeric_format=str(row[9]),
+                    value_semantics=str(row[10]),
+                    values=values,
+                    text_value=text_value,
+                    axes=axes,
+                    axis_names=axis_names,
+                    axis_units=axis_units,
+                )
+        return out
 
     def _ensure_dataset_ownership(self, rec: ParameterRecord) -> None:
         if not self._exists_data_set(rec.data_set_id):
@@ -735,7 +1091,8 @@ class ParametersRepository:
         return np.asarray(arr)
 
     def _write_numeric_array(self, parameter_id: UUID, arr: np.ndarray) -> None:
-        a = np.asarray(arr, dtype=np.float64)
+        # Materielle Kopie vor Serialisierung: kein Teilen von Views mit Aufrufer- oder DuckDB-Puffern.
+        a = np.array(np.asarray(arr, dtype=np.float64), copy=True)
         self._con.execute(
             """
             INSERT OR REPLACE INTO parameter_values(parameter_id, shape_json, values_npy)
@@ -754,7 +1111,7 @@ class ParametersRepository:
         return self._from_npy_blob(row[0])
 
     def _write_axis_values(self, parameter_id: UUID, axis_idx: int, arr: np.ndarray) -> None:
-        a = np.asarray(arr, dtype=np.float64).reshape(-1)
+        a = np.array(np.asarray(arr, dtype=np.float64).reshape(-1), copy=True)
         self._con.execute(
             """
             INSERT OR REPLACE INTO parameter_axes(parameter_id, axis_index, values_npy)
@@ -808,4 +1165,19 @@ class ParametersRepository:
         if row is None:
             return None
         return str(row[0])
+
+    def get_dataset_init_file_stem(self, data_set_id: UUID) -> str:
+        """Filename stem from ``source_path`` when the set was registered; else DuckDB ``name``."""
+        row = self._con.execute(
+            "SELECT name, source_path FROM data_sets WHERE id = ?",
+            [str(data_set_id)],
+        ).fetchone()
+        if row is None:
+            return str(data_set_id)
+        name, sp = str(row[0]), str(row[1] or "").strip()
+        if sp:
+            stem = Path(sp.replace("\\", "/")).stem.strip()
+            if stem:
+                return stem
+        return name
 

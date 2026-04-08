@@ -1,0 +1,14 @@
+# Repro-Skript basierend auf der dokumentierten CLI-Sequenz.
+# Lädt zunächst die Basis-Datensätze und führt dann die drei selektiven cp-Operationen aus.
+
+load "./load_maximal_dcms.syn"
+
+select -p Cal_AccelTrqDem_00025@c15cd90f-ec63-4716-86c3-264bd5a46b95
+select -p Cal_AccelTrqDem_00035@1e9ec5db-43cb-4b90-b580-137d53a26958
+select -p Cal_AccelTrqDem_00105@d97d47ce-a756-4aab-ae45-a2e18a498e9a
+
+cp cal_param Cal_AccelTrqDem_00025@5271f09f-d450-4a28-98c3-ca0a3d6c4976 Cal_AccelTrqDem_00025@c15cd90f-ec63-4716-86c3-264bd5a46b95
+cp cal_param Cal_AccelTrqDem_00035@1e9ec5db-43cb-4b90-b580-137d53a26958 Cal_AccelTrqDem_00035@96f66b7a-9875-492c-89ff-14a3d5df26e4
+cp cal_param Cal_AccelTrqDem_00105@13da4079-6b3c-45d0-ae53-3bc4d9ba5263 Cal_AccelTrqDem_00105@d97d47ce-a756-4aab-ae45-a2e18a498e9a
+
+select

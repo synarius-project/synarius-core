@@ -53,7 +53,7 @@ def _print_help() -> None:
                 "  load <file.syn>         Load command-stack script",
                 "",
                 "Protocol commands:",
-                "  ls, lsattr [-l], cd <path> (incl. @libraries/… for FMF libs), new …, select …, set … (set -p @selection …), get …, del … | del @selected",
+                "  ls, lsattr [-l], cd <path> (incl. @libraries/… for FMF libs), new …, select … (-p append, -m remove), set … (set -p @selection …), get …, del … | del @selected",
                 "  fmu inspect <path.fmu> | fmu bind <ref> [from=<path>] | fmu reload <ref> [path=<path>]",
             ]
         ),

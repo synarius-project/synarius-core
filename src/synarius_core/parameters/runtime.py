@@ -51,6 +51,7 @@ class ParameterRuntime:
     def parameters_root(self) -> ComplexInstance:
         for c in self.model.root.children:
             if isinstance(c, ComplexInstance) and c.name == "parameters":
+                c.attribute_dict["type"] = "MODEL.PARAMETERS"
                 return c
         p = ComplexInstance(name="parameters")
         self.model.attach(p, parent=self.model.root, reserve_existing=False, remap_ids=False)
@@ -60,6 +61,7 @@ class ParameterRuntime:
     def _ensure_child_container(self, parent: ComplexInstance, name: str, type_name: str) -> ComplexInstance:
         for c in parent.children:
             if isinstance(c, ComplexInstance) and c.name == name:
+                c.attribute_dict["type"] = type_name
                 return c
         node = ComplexInstance(name=name)
         self.model.attach(node, parent=parent, reserve_existing=False, remap_ids=False)
@@ -68,6 +70,26 @@ class ParameterRuntime:
 
     def data_sets_root(self) -> ComplexInstance:
         return self._ensure_child_container(self.parameters_root(), "data_sets", "MODEL.PARAMETER_DATA_SETS")
+
+    @staticmethod
+    def _node_type(node: ComplexInstance | None) -> str:
+        if node is None:
+            return ""
+        try:
+            return str(node.get("type"))
+        except Exception:
+            return ""
+
+    def _is_data_set_node(self, node: ComplexInstance | None) -> bool:
+        return self._node_type(node) == "MODEL.PARAMETER_DATA_SET"
+
+    def _dataset_ancestor_for_node(self, node: ComplexInstance | None) -> ComplexInstance | None:
+        cur = node
+        while isinstance(cur, ComplexInstance):
+            if self._is_data_set_node(cur):
+                return cur
+            cur = cur.parent
+        return None
 
     # ---- refs -------------------------------------------------------------
 
@@ -105,6 +127,9 @@ class ParameterRuntime:
     ) -> None:
         if node.id is None:
             raise ValueError("data_set node must be attached before registration")
+        parent = node.parent
+        if not isinstance(parent, ComplexInstance) or self._node_type(parent) != "MODEL.PARAMETER_DATA_SETS":
+            raise ValueError("data_set must be created directly under parameters/data_sets")
         node.attribute_dict["type"] = "MODEL.PARAMETER_DATA_SET"
         for key, value in (
             ("source_path", str(source_path)),
@@ -126,6 +151,9 @@ class ParameterRuntime:
             self._active_dataset_name = node.name
 
     def register_data_container_node(self, node: ComplexInstance) -> None:
+        parent = node.parent
+        if not isinstance(parent, ComplexInstance) or not self._is_data_set_node(parent):
+            raise ValueError("data_container must be created as direct child of a data_set")
         node.attribute_dict["type"] = "MODEL.PARAMETER_DATA_CONTAINER"
         if "container_type" not in node.attribute_dict:
             dict.__setitem__(node.attribute_dict, "container_type", ("GROUP", None, None, True, True))
@@ -139,13 +167,28 @@ class ParameterRuntime:
     ) -> None:
         if node.id is None:
             raise ValueError("cal_param node must be attached before registration")
+        parent = node.parent if isinstance(node.parent, ComplexInstance) else None
+        parent_is_dataset = self._is_data_set_node(parent)
+        parent_is_container = self._node_type(parent) == "MODEL.PARAMETER_DATA_CONTAINER"
+        if not (parent_is_dataset or parent_is_container):
+            raise ValueError("cal_param must be created under a data_set or data_container")
+        owner_data_set = self._dataset_ancestor_for_node(parent)
+        if owner_data_set is None or owner_data_set.id is None:
+            raise ValueError("cal_param parent must belong to an attached data_set")
+        owner_data_set_id = owner_data_set.id
         if data_set_id is None:
-            active = self.active_dataset()
-            if active is None or active.id is None:
-                raise ValueError("cal_param requires a data_set (active_dataset_name is None)")
-            data_set_id = active.id
+            data_set_id = owner_data_set_id
+        elif data_set_id != owner_data_set_id:
+            raise ValueError("cal_param data_set=... must match the parent data_set")
         node.attribute_dict["type"] = "MODEL.CAL_PARAM"
-        if "data_set_id" not in node.attribute_dict:
+        if "data_set_id" in node.attribute_dict:
+            try:
+                existing = UUID(str(node.get("data_set_id")))
+            except Exception as exc:
+                raise ValueError("cal_param has invalid existing data_set_id attribute") from exc
+            if existing != data_set_id:
+                raise ValueError("cal_param existing data_set_id conflicts with resolved parent data_set")
+        else:
             dict.__setitem__(node.attribute_dict, "data_set_id", (str(data_set_id), None, None, True, False))
         self.repo.register_parameter(
             parameter_id=node.id,
@@ -172,13 +215,24 @@ class ParameterRuntime:
         """Register a cal_param and write payload in one repository path (e.g. DCM bulk import)."""
         if node.id is None:
             raise ValueError("cal_param node must be attached before registration")
+        parent = node.parent if isinstance(node.parent, ComplexInstance) else None
+        owner_data_set = self._dataset_ancestor_for_node(parent)
+        if owner_data_set is None or owner_data_set.id is None:
+            raise ValueError("imported cal_param must be attached under a data_set subtree")
+        owner_data_set_id = owner_data_set.id
         if data_set_id is None:
-            active = self.active_dataset()
-            if active is None or active.id is None:
-                raise ValueError("cal_param requires a data_set (active_dataset_name is None)")
-            data_set_id = active.id
+            data_set_id = owner_data_set_id
+        elif data_set_id != owner_data_set_id:
+            raise ValueError("imported cal_param data_set_id must match parent data_set")
         node.attribute_dict["type"] = "MODEL.CAL_PARAM"
-        if "data_set_id" not in node.attribute_dict:
+        if "data_set_id" in node.attribute_dict:
+            try:
+                existing = UUID(str(node.get("data_set_id")))
+            except Exception as exc:
+                raise ValueError("imported cal_param has invalid existing data_set_id attribute") from exc
+            if existing != data_set_id:
+                raise ValueError("imported cal_param existing data_set_id conflicts with parent data_set")
+        else:
             dict.__setitem__(node.attribute_dict, "data_set_id", (str(data_set_id), None, None, True, False))
         self.repo.write_cal_param_import(
             parameter_id=node.id,
@@ -212,8 +266,21 @@ class ParameterRuntime:
                 raise ValueError("cal_param node must be attached before registration")
             if node.id != prep.parameter_id:
                 raise ValueError("prepared row parameter_id must match attached node id")
+            parent = node.parent if isinstance(node.parent, ComplexInstance) else None
+            owner_data_set = self._dataset_ancestor_for_node(parent)
+            if owner_data_set is None or owner_data_set.id is None:
+                raise ValueError("imported cal_param must be attached under a data_set subtree")
+            if owner_data_set.id != prep.data_set_id:
+                raise ValueError("prepared row data_set_id must match parent data_set")
             node.attribute_dict["type"] = "MODEL.CAL_PARAM"
-            if "data_set_id" not in node.attribute_dict:
+            if "data_set_id" in node.attribute_dict:
+                try:
+                    existing = UUID(str(node.get("data_set_id")))
+                except Exception as exc:
+                    raise ValueError("imported cal_param has invalid existing data_set_id attribute") from exc
+                if existing != prep.data_set_id:
+                    raise ValueError("imported cal_param existing data_set_id conflicts with parent data_set")
+            else:
                 dict.__setitem__(
                     node.attribute_dict,
                     "data_set_id",

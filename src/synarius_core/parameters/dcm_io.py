@@ -158,11 +158,14 @@ def parse_dcm_specs(
 
         if kw == "FESTWERTEBLOCK":
             if len(parts) < 3:
-                raise ValueError("FESTWERTEBLOCK requires <name> <count>")
+                raise ValueError("FESTWERTEBLOCK requires <name> <count> or <count_x> @ <count_y>")
             name = parts[1]
-            n = int(parts[2])
+            nx = int(parts[2])
+            ny = 1
+            if len(parts) >= 5 and parts[3] == "@":
+                ny = int(parts[4])
             i += 1
-            block_vals: list[float] | None = None
+            block_rows: list[list[float]] = []
             display_name = ""
             unit = ""
             source_identifier = ""
@@ -173,7 +176,7 @@ def parse_dcm_specs(
                     break
                 if tp and tp[0].upper() == "WERT":
                     bv = _floats_after_keyword(tp, "WERT")
-                    block_vals = bv.tolist()
+                    block_rows.append(bv.tolist())
                 elif tp and tp[0].upper() == "LANGNAME":
                     display_name = _str_after_keyword(tp, "LANGNAME", context=name)
                 elif tp and tp[0].upper() == "EINHEIT":
@@ -191,13 +194,30 @@ def parse_dcm_specs(
                         _str_after_keyword(tp, "FUNKTION", context=name),
                     )
                 i += 1
-            if block_vals is None or len(block_vals) != n:
-                raise ValueError(f"FESTWERTEBLOCK {name!r} expected {n} values, got {block_vals!r}")
-            arr = np.asarray(block_vals, dtype=np.float64).reshape(n)
+            if ny <= 1:
+                if len(block_rows) != 1:
+                    raise ValueError(f"FESTWERTEBLOCK {name!r} expected exactly one WERT row, got {len(block_rows)}")
+                block_vals = block_rows[0]
+                if len(block_vals) != nx:
+                    raise ValueError(f"FESTWERTEBLOCK {name!r} expected {nx} values, got {block_vals!r}")
+                arr = np.asarray(block_vals, dtype=np.float64).reshape(nx)
+                category = "ARRAY"
+            else:
+                if len(block_rows) != ny:
+                    raise ValueError(
+                        f"FESTWERTEBLOCK {name!r} expected {ny} WERT rows for matrix, got {len(block_rows)}"
+                    )
+                for row in block_rows:
+                    if len(row) != nx:
+                        raise ValueError(f"FESTWERTEBLOCK {name!r} matrix row length {len(row)} != {nx}")
+                # ASAM DCM2 matrix form: "<nx> @ <ny>" and ny WERT-rows with nx values each.
+                # Keep orientation aligned with KENNFELD: values[x, y] => shape (nx, ny).
+                arr = np.asarray(block_rows, dtype=np.float64).reshape(ny, nx).T
+                category = "MATRIX"
             specs.append(
                 DcmImportSpec(
                     name,
-                    "VALUE",
+                    category,
                     arr,
                     display_name=display_name,
                     unit=unit,
@@ -395,7 +415,7 @@ def parse_dcm_specs(
             specs.append(
                 DcmImportSpec(
                     name,
-                    "VALUE",
+                    "NODE_ARRAY",
                     arr,
                     display_name=display_name,
                     unit=unit,
@@ -447,10 +467,11 @@ def import_dcm_for_dataset(
 
     if not isinstance(ds, ComplexInstance) or ds.id is None:
         raise ValueError("data_set_ref must resolve to an attached ComplexInstance with id")
-
-    parent = controller.current
-    if not isinstance(parent, ComplexInstance):
-        raise ValueError("controller cwd must be a ComplexInstance (e.g. parameters/data_sets)")
+    try:
+        if str(ds.get("type")) != "MODEL.PARAMETER_DATA_SET":
+            raise ValueError("data_set_ref must resolve to a MODEL.PARAMETER_DATA_SET node")
+    except KeyError as exc:
+        raise ValueError("data_set_ref must resolve to a MODEL.PARAMETER_DATA_SET node") from exc
 
     rt = controller.model.parameter_runtime()
     total = len(specs)
@@ -460,7 +481,7 @@ def import_dcm_for_dataset(
     pairs: list[tuple[ComplexInstance, CalParamImportPrepared]] = []
     for spec in specs:
         node = ComplexInstance(name=spec.name)
-        controller.model.attach(node, parent=parent, reserve_existing=False, remap_ids=False)
+        controller.model.attach(node, parent=ds, reserve_existing=False, remap_ids=False)
         ax_copy = {int(k): np.asarray(v, dtype=np.float64).copy() for k, v in spec.axes.items()}
         prep = rt.repo.prepare_cal_param_import_row(
             parameter_id=node.id,

@@ -1,3 +1,4 @@
+import json
 import shlex
 import sys
 import tempfile
@@ -118,6 +119,37 @@ class MinimalControllerProtocolTest(unittest.TestCase):
         ctl.execute("select A B")
         updated = ctl.execute("set @selection value 10")
         self.assertEqual(updated, "2")
+
+    def test_select_append_mode(self) -> None:
+        ctl = MinimalController()
+        ctl.execute("new Variable A")
+        ctl.execute("new Variable B")
+        ctl.execute("new Variable C")
+        ctl.execute("select A")
+        ctl.execute("select -p B C A")
+        self.assertEqual([obj.name for obj in ctl.selection], ["A", "B", "C"])
+
+    def test_select_append_requires_operand(self) -> None:
+        ctl = MinimalController()
+        with self.assertRaises(CommandError):
+            ctl.execute("select -p")
+
+    def test_select_remove_mode(self) -> None:
+        ctl = MinimalController()
+        ctl.execute("new Variable A")
+        ctl.execute("new Variable B")
+        ctl.execute("new Variable C")
+        ctl.execute("select A B C")
+        ctl.execute("select -m B")
+        self.assertEqual([obj.name for obj in ctl.selection], ["A", "C"])
+        ctl.execute("select -m A C")
+        self.assertEqual(ctl.selection, [])
+
+    def test_select_remove_requires_operand(self) -> None:
+        ctl = MinimalController()
+        ctl.execute("new Variable X")
+        with self.assertRaises(CommandError):
+            ctl.execute("select -m")
 
     def test_cd_allows_elementary_object_context(self) -> None:
         ctl = MinimalController()
@@ -248,6 +280,54 @@ class MinimalControllerProtocolTest(unittest.TestCase):
         ctl.execute("select A")
         with self.assertRaises(CommandError):
             ctl.execute("set @selection -p position 1 2")
+
+    def test_cp_selection_to_dataset(self) -> None:
+        ctl = MinimalController()
+        ctl.execute("cd @main/parameters/data_sets")
+        ds_a = (ctl.execute("new DataSet DS_A") or "").strip()
+        ds_b = (ctl.execute("new DataSet DS_B") or "").strip()
+        ctl.execute(f"cd {ds_a}")
+        p_src = (ctl.execute("new CalParam K1") or "").strip()
+        ctl.execute(f"set {p_src}.value 12.5")
+        ctl.execute("cd ..")
+        ctl.execute(f"cd {ds_b}")
+        p_dst = (ctl.execute("new CalParam K1") or "").strip()
+        ctl.execute(f"set {p_dst}.value 0.0")
+        ctl.execute(f"select {p_src}")
+        out = ctl.execute(f"cp @selection {ds_b}") or ""
+        payload = json.loads(out)
+        self.assertEqual(int(payload["copied"]), 1)
+        self.assertEqual(int(payload["skipped"]), 0)
+        self.assertEqual(len(payload["errors"]), 0)
+        self.assertEqual(len(payload.get("copied_dst_ids", [])), 1)
+        self.assertEqual(len(payload.get("copied_src_ids", [])), 1)
+        self.assertEqual(payload.get("skipped_details"), [])
+        self.assertEqual(float(ctl.execute(f"get {p_dst}.value") or "nan"), 12.5)
+
+    def test_cp_selection_to_dataset_creates_missing_dest_cal_param(self) -> None:
+        """cp @selection legt fehlende Ziel-Kenngröße unter dem Ziel-Datensatz an."""
+        ctl = MinimalController()
+        ctl.execute("cd @main/parameters/data_sets")
+        ds_a = (ctl.execute("new DataSet DS_SRC") or "").strip()
+        ds_b = (ctl.execute("new DataSet DS_TGT_EMPTY") or "").strip()
+        ctl.execute(f"cd {ds_a}")
+        p_src = (ctl.execute("new CalParam K_auto") or "").strip()
+        ctl.execute(f"set {p_src}.value 7.25")
+        ctl.execute("cd ..")
+        ctl.execute(f"cd {ds_b}")
+        ctl.execute(f"select {p_src}")
+        out = ctl.execute(f"cp @selection {ds_b}") or ""
+        payload = json.loads(out)
+        self.assertEqual(int(payload["copied"]), 1)
+        self.assertEqual(int(payload["skipped"]), 0)
+        self.assertEqual(len(payload["errors"]), 0)
+        cids = payload.get("copied_dst_ids") or []
+        self.assertEqual(len(cids), 1)
+        self.assertEqual(len(payload.get("copied_src_ids") or []), 1)
+        repo = ctl.model.parameter_runtime().repo
+        rec = repo.get_record(UUID(str(cids[0])))
+        self.assertEqual(rec.name, "K_auto")
+        self.assertAlmostEqual(float(rec.values.reshape(-1)[0]), 7.25)
 
     def test_dataviewer_open_widget_set_get(self) -> None:
         """CCP: DataViewer exposes ``open_widget`` for Studio to open the live widget."""

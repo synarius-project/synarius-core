@@ -1,6 +1,6 @@
 /ASAP2_VERSION 1 71
 
-/begin PROJECT SynariusA2LDemo "Minimal ASAM MCD-2 MC example for CDFX dependency tests"
+/begin PROJECT SynariusA2LDemo "Automotive ASAP2 demo: torque and velocity calibration linkage for CDFX tests"
   /begin HEADER "Synarius parameter format test data"
     VERSION "1.0.0"
   /end HEADER
@@ -31,10 +31,10 @@
       FNC_VALUES 1 FLOAT32_IEEE COLUMN_DIR DIRECT
     /end RECORD_LAYOUT
 
-    /begin CHARACTERISTIC P_MAX_00000 "Example calibration value" VALUE 0x00010000 RL_SCALAR 0 CM_LINEAR 0 100000
+    /begin CHARACTERISTIC P_MAX_00000 "Wheel torque estimation gain scalar" VALUE 0x00010000 RL_SCALAR 0 CM_LINEAR 0 100000
     /end CHARACTERISTIC
 
-    /begin MEASUREMENT Meas_Demo "Example measurement" FLOAT32_IEEE CM_LINEAR 0 100000
+    /begin MEASUREMENT Meas_Demo "Vehicle longitudinal velocity sensor" FLOAT32_IEEE CM_LINEAR 0 100000
       ECU_ADDRESS 0x00020000
     /end MEASUREMENT
   /end MODULE

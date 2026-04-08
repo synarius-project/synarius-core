@@ -5,6 +5,7 @@ import json
 import shlex
 from datetime import datetime
 from operator import attrgetter
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 from uuid import UUID
@@ -76,6 +77,10 @@ class MinimalController:
         }
         #: Set when ``load <script>`` succeeds; used to resolve relative ``fmu.path`` during simulation.
         self.last_loaded_script_path: Path | None = None
+        #: Optional GUI hooks for ``import dcm`` (e.g. copied onto the transactional clone inside ``load``).
+        self.dcm_import_progress_hook: Callable[[int, int], None] | None = None
+        self.dcm_import_phase_hook: Callable[[str, int], None] | None = None
+        self.dcm_import_cooperative_hook: Callable[[], None] | None = None
 
     def _rebind_model_root_aliases(self) -> None:
         """Point workspace aliases at ``self.model.root`` after the model instance was replaced (e.g. ``load``)."""
@@ -107,6 +112,15 @@ class MinimalController:
         if cmd == "load":
             out = self._dispatch_command(cmd, args)
             self._clear_undo_stacks()
+            return out
+
+        if cmd == "import":
+            out = self._dispatch_command(cmd, args)
+            self._clear_undo_stacks()
+            return out
+
+        if cmd == "cp":
+            out = self._dispatch_command(cmd, args)
             return out
 
         if cmd == "new":
@@ -156,6 +170,10 @@ class MinimalController:
             return self._cmd_mv(args)
         if cmd == "load":
             return self._cmd_load(args)
+        if cmd == "import":
+            return self._cmd_import(args)
+        if cmd == "cp":
+            return self._cmd_cp(args)
 
         raise CommandError(f"Unknown command '{cmd}'.")
 
@@ -280,6 +298,13 @@ class MinimalController:
 
         if not objs:
             return None
+        for o in objs:
+            if isinstance(o, ComplexInstance) and o.id is not None:
+                try:
+                    if str(o.get("type")) == "MODEL.PARAMETER_DATA_SET":
+                        return None
+                except KeyError:
+                    pass
         trash_flags = [self.model.is_in_trash_subtree(o) for o in objs]
         if any(trash_flags) and not all(trash_flags):
             raise CommandError("del cannot combine objects inside trash with live objects in one command.")
@@ -416,9 +441,11 @@ class MinimalController:
         return ""
 
     def execute_script(self, script_path: str | Path, *, command_trace: list[str] | None = None) -> list[str]:
-        path = Path(script_path)
+        path = Path(script_path).expanduser().resolve()
         if not path.exists():
             raise CommandError(f"Script not found: {path}")
+        # Damit ``import dcm … <relativerPfad>`` während dieses Skripts auflösbar ist (z. B. bei ``load``).
+        self.last_loaded_script_path = path
 
         outputs: list[str] = []
         for line_no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
@@ -826,20 +853,42 @@ class MinimalController:
         elif type_name == "DataSet":
             if not positional:
                 raise CommandError("new DataSet requires <name>.")
+            if self._node_model_type(self.current) != "MODEL.PARAMETER_DATA_SETS":
+                raise CommandError("new DataSet is only allowed in parameters/data_sets.")
             obj = ComplexInstance(name=positional[0], obj_id=explicit_id)
             obj.attribute_dict["type"] = "MODEL.PARAMETER_DATA_SET"
         elif type_name == "DataContainer":
             if not positional:
                 raise CommandError("new DataContainer requires <name>.")
+            if self._node_model_type(self.current) != "MODEL.PARAMETER_DATA_SET":
+                raise CommandError("new DataContainer is only allowed directly under a DataSet.")
             obj = ComplexInstance(name=positional[0], obj_id=explicit_id)
             obj.attribute_dict["type"] = "MODEL.PARAMETER_DATA_CONTAINER"
         elif type_name == "CalParam":
             if not positional:
                 raise CommandError("new CalParam requires <name>.")
+            cur_t = self._node_model_type(self.current)
+            if cur_t not in {"MODEL.PARAMETER_DATA_SET", "MODEL.PARAMETER_DATA_CONTAINER"}:
+                raise CommandError("new CalParam is only allowed under a DataSet/DataContainer subtree.")
             obj = ComplexInstance(name=positional[0], obj_id=explicit_id)
             obj.attribute_dict["type"] = "MODEL.CAL_PARAM"
         else:
             raise CommandError(f"Unsupported new type '{type_name}'.")
+
+        ds_id2: UUID | None = None
+        if type_name == "CalParam":
+            ds_ref = kwargs.get("data_set")
+            if ds_ref is not None and str(ds_ref).strip() != "":
+                ds_obj = self._resolve_ref(str(ds_ref))
+                did = getattr(ds_obj, "id", None)
+                if not isinstance(ds_obj, ComplexInstance) or not isinstance(did, UUID):
+                    raise CommandError("data_set must resolve to an attached DataSet with UUID.")
+                if self._node_model_type(ds_obj) != "MODEL.PARAMETER_DATA_SET":
+                    raise CommandError("data_set must reference a MODEL.PARAMETER_DATA_SET node.")
+                ds_id2 = did
+                cur_owner = self._ancestor_parameter_data_set(self.current)
+                if cur_owner is not None and cur_owner.id is not None and cur_owner.id != ds_id2:
+                    raise CommandError("data_set=... must match the current parent DataSet subtree.")
 
         try:
             self.model.attach(
@@ -850,40 +899,34 @@ class MinimalController:
             )
         except DuplicateIdError as exc:
             raise CommandError(str(exc)) from exc
-        if type_name == "DataSet":
-            if "data_source" in kwargs:
-                raise CommandError(
-                    "new DataSet data_source=... is no longer supported. "
-                    "Use source_path=... (and optional source_format/source_hash)."
-                )
-            try:
+        try:
+            if type_name == "DataSet":
+                if "data_source" in kwargs:
+                    raise CommandError(
+                        "new DataSet data_source=... is no longer supported. "
+                        "Use source_path=... (and optional source_format/source_hash)."
+                    )
                 self.model.parameter_runtime().register_data_set_node(
                     obj,
                     source_path=str(kwargs.get("source_path", "")),
                     source_format=str(kwargs.get("source_format", "unknown")),
                     source_hash=str(kwargs.get("source_hash", "")),
                 )
-            except ValueError as exc:
-                raise CommandError(str(exc)) from exc
-        elif type_name == "DataContainer":
-            self.model.parameter_runtime().register_data_container_node(obj)
-        elif type_name == "CalParam":
-            ds_ref = kwargs.get("data_set")
-            ds_id2: UUID | None = None
-            if ds_ref is not None and str(ds_ref).strip() != "":
-                ds_obj = self._resolve_ref(str(ds_ref))
-                did = getattr(ds_obj, "id", None)
-                if not isinstance(did, UUID):
-                    raise CommandError("data_set must resolve to an attached object with UUID.")
-                ds_id2 = did
-            try:
+            elif type_name == "DataContainer":
+                self.model.parameter_runtime().register_data_container_node(obj)
+            elif type_name == "CalParam":
                 self.model.parameter_runtime().register_cal_param_node(
                     obj,
                     data_set_id=ds_id2,
                     category=str(kwargs.get("category", "VALUE")),
                 )
-            except ValueError as exc:
-                raise CommandError(str(exc)) from exc
+        except (ValueError, CommandError) as exc:
+            if isinstance(obj, ComplexInstance) and obj.parent is not None and obj.id is not None:
+                try:
+                    self.model.delete(obj.parent, obj.id)
+                except Exception:
+                    pass
+            raise CommandError(str(exc)) from exc
         return obj.hash_name
 
     def _next_dataviewer_default_position(self) -> tuple[float, float]:
@@ -900,8 +943,50 @@ class MinimalController:
         if not args:
             self.selection = []
             return ""
-        resolved = [self._resolve_ref(token) for token in args]
-        self.selection = resolved
+        if args[0] == "-m":
+            tokens = args[1:]
+            if not tokens:
+                raise CommandError("select -m requires at least one reference.")
+            resolved = [self._resolve_ref(token) for token in tokens]
+            remove_keys: set[str] = set()
+            for obj in resolved:
+                oid = getattr(obj, "id", None)
+                key = str(oid) if oid is not None else f"obj:{id(obj)}"
+                remove_keys.add(key)
+            kept: list[Any] = []
+            for obj in self.selection:
+                oid = getattr(obj, "id", None)
+                key = str(oid) if oid is not None else f"obj:{id(obj)}"
+                if key not in remove_keys:
+                    kept.append(obj)
+            self.selection = kept
+            return ""
+        append_mode = False
+        tokens = list(args)
+        if tokens and tokens[0] == "-p":
+            append_mode = True
+            tokens = tokens[1:]
+            if not tokens:
+                raise CommandError("select -p requires at least one reference.")
+        resolved = [self._resolve_ref(token) for token in tokens]
+        if not append_mode:
+            self.selection = resolved
+            return ""
+
+        merged = list(self.selection)
+        seen: set[str] = set()
+        for obj in merged:
+            oid = getattr(obj, "id", None)
+            key = str(oid) if oid is not None else f"obj:{id(obj)}"
+            seen.add(key)
+        for obj in resolved:
+            oid = getattr(obj, "id", None)
+            key = str(oid) if oid is not None else f"obj:{id(obj)}"
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(obj)
+        self.selection = merged
         return ""
 
     def _cmd_set(self, args: list[str]) -> str:
@@ -1010,6 +1095,14 @@ class MinimalController:
         except Exception:
             return None
         return str(t) if t is not None else None
+
+    def _ancestor_parameter_data_set(self, node: Any) -> ComplexInstance | None:
+        cur = node if isinstance(node, ComplexInstance) else None
+        while isinstance(cur, ComplexInstance):
+            if self._node_model_type(cur) == "MODEL.PARAMETER_DATA_SET":
+                return cur
+            cur = cur.parent
+        return None
 
     @staticmethod
     def _format_ndarray_summary(arr: np.ndarray) -> str:
@@ -1240,9 +1333,175 @@ class MinimalController:
         self._prune_selection_after_delete()
         return str(removed)
 
+    def _cmd_cp(self, args: list[str]) -> str:
+        """Copy cal-param payloads either pairwise or selection-based."""
+        if not args:
+            raise CommandError("usage: cp cal_param <sourceRef> <destRef> | cp @selection <targetDataSetRef>")
+        if args[0] == "@selection":
+            if len(args) != 2:
+                raise CommandError("usage: cp @selection <targetDataSetRef>")
+            target = self._resolve_ref(args[1])
+            if not isinstance(target, ComplexInstance) or target.id is None:
+                raise CommandError("target data set must resolve to an attached object with id")
+            if self._node_model_type(target) != "MODEL.PARAMETER_DATA_SET":
+                raise CommandError("target must be a MODEL.PARAMETER_DATA_SET")
+            return self._cmd_cp_selection_to_dataset(target)
+        if len(args) < 3:
+            raise CommandError("usage: cp cal_param <sourceRef> <destRef>")
+        if args[0] != "cal_param":
+            raise CommandError("cp: only 'cal_param' or '@selection' is supported")
+        src = self._resolve_ref(args[1])
+        dst = self._resolve_ref(args[2])
+        if not isinstance(src, ComplexInstance) or src.id is None:
+            raise CommandError("source must resolve to an attached object with id")
+        if not isinstance(dst, ComplexInstance) or dst.id is None:
+            raise CommandError("destination must resolve to an attached object with id")
+        if self._node_model_type(src) != "MODEL.CAL_PARAM":
+            raise CommandError("source must be a CAL_PARAM")
+        if self._node_model_type(dst) != "MODEL.CAL_PARAM":
+            raise CommandError("destination must be a CAL_PARAM")
+        rt = self.model.parameter_runtime()
+        rt.ensure_tree()
+        rt.repo.copy_cal_param_payload(src.id, dst.id)
+        return f"ok {args[1]} -> {args[2]}"
+
+    def _iter_cal_params_under(self, node: ComplexInstance) -> list[ComplexInstance]:
+        out: list[ComplexInstance] = []
+        stack: list[ComplexInstance] = [node]
+        while stack:
+            cur = stack.pop()
+            for child in cur.children:
+                if not isinstance(child, ComplexInstance):
+                    continue
+                stack.append(child)
+                if self._node_model_type(child) == "MODEL.CAL_PARAM" and child.id is not None:
+                    out.append(child)
+        return out
+
+    def _create_cal_param_for_copy(
+        self, target_ds: ComplexInstance, src: ComplexInstance, src_rec: ParameterRecord
+    ) -> ComplexInstance:
+        """Leere Ziel-Kenngröße unter ``target_ds`` (gleicher Name/Kategorie) für ``cp @selection``."""
+        rt = self.model.parameter_runtime()
+        rt.ensure_tree()
+        obj = ComplexInstance(name=src.name)
+        obj.attribute_dict["type"] = "MODEL.CAL_PARAM"
+        try:
+            self.model.attach(obj, parent=target_ds, reserve_existing=False, remap_ids=False)
+        except DuplicateIdError as exc:
+            raise CommandError(str(exc)) from exc
+        try:
+            rt.register_cal_param_node(
+                obj,
+                data_set_id=target_ds.id,
+                category=str(src_rec.category),
+            )
+        except Exception as exc:
+            if obj.parent is not None and obj.id is not None:
+                try:
+                    self.model.delete(obj.parent, obj.id)
+                except Exception:
+                    pass
+            raise CommandError(f"Ziel-Kenngröße {src.name!r} anlegen: {exc}") from exc
+        return obj
+
+    def _selected_cal_params(self) -> list[ComplexInstance]:
+        out: list[ComplexInstance] = []
+        seen: set[UUID] = set()
+        for obj in self.selection:
+            if not isinstance(obj, ComplexInstance) or obj.id is None:
+                continue
+            if self._node_model_type(obj) != "MODEL.CAL_PARAM":
+                continue
+            if obj.id in seen:
+                continue
+            seen.add(obj.id)
+            out.append(obj)
+        return out
+
+    def _cmd_cp_selection_to_dataset(self, target_ds: ComplexInstance) -> str:
+        selected = self._selected_cal_params()
+        if not selected:
+            raise CommandError("cp @selection requires at least one selected CAL_PARAM")
+        if target_ds.id is None:
+            raise CommandError("target data set must have an id")
+
+        target_by_name: dict[str, list[ComplexInstance]] = {}
+        for node in self._iter_cal_params_under(target_ds):
+            target_by_name.setdefault(node.name, []).append(node)
+
+        rt = self.model.parameter_runtime()
+        rt.ensure_tree()
+
+        copied = 0
+        skipped = 0
+        errors: list[str] = []
+        copied_dst_ids: list[str] = []
+        copied_src_ids: list[str] = []
+        skipped_details: list[dict[str, str]] = []
+        for src in selected:
+            src_id = src.id
+            if src_id is None:
+                skipped += 1
+                skipped_details.append({"name": src.name, "reason": "missing_source_id"})
+                continue
+            try:
+                src_rec = rt.repo.get_record(src_id)
+            except Exception as exc:
+                errors.append(f"{src.name}: {exc}")
+                continue
+            if src_rec.data_set_id == target_ds.id:
+                skipped += 1
+                skipped_details.append({"name": src.name, "reason": "source_already_in_target_dataset"})
+                continue
+            cands = target_by_name.get(src.name, [])
+            if not cands:
+                try:
+                    dst_new = self._create_cal_param_for_copy(target_ds, src, src_rec)
+                except CommandError as exc:
+                    errors.append(str(exc))
+                    continue
+                target_by_name.setdefault(src.name, []).append(dst_new)
+                cands = [dst_new]
+            if len(cands) != 1:
+                errors.append(f"{src.name}: target ambiguous ({len(cands)})")
+                continue
+            dst = cands[0]
+            if dst.id is None:
+                skipped += 1
+                skipped_details.append({"name": src.name, "reason": "target_parameter_has_no_id"})
+                continue
+            try:
+                rt.repo.copy_cal_param_payload(src_id, dst.id)
+                copied += 1
+                if dst.id is not None:
+                    copied_dst_ids.append(str(dst.id))
+                    copied_src_ids.append(str(src_id))
+            except Exception as exc:
+                errors.append(f"{src.name}: {exc}")
+
+        return json.dumps(
+            {
+                "copied": copied,
+                "skipped": skipped,
+                "errors": errors,
+                "copied_dst_ids": copied_dst_ids,
+                "copied_src_ids": copied_src_ids,
+                "skipped_details": skipped_details,
+            },
+            ensure_ascii=False,
+        )
+
     def _delete_one_object(self, obj: Any) -> None:
         if obj.parent is None or obj.id is None:
             return
+        if isinstance(obj, ComplexInstance):
+            try:
+                if str(obj.get("type")) == "MODEL.PARAMETER_DATA_SET":
+                    self._delete_parameter_data_set_cascade(obj)
+                    return
+            except KeyError:
+                pass
         # Wenn ein DataViewer gelöscht wird, entferne seine ID aus allen Variablen-Messzuordnungen.
         if isinstance(obj, DataViewer):
             try:
@@ -1268,6 +1527,34 @@ class MinimalController:
             self.model.delete(obj.parent, obj.id)  # type: ignore[arg-type]
         else:
             self.model.reparent(obj, self.model.get_trash_folder())
+
+    def _delete_parameter_data_set_cascade(self, ds_node: ComplexInstance) -> None:
+        """Alle Kenngrößen dieses Satzes aus dem Modell, DuckDB-Einträge und den DataSet-Knoten entfernen."""
+        ds_id = ds_node.id
+        if ds_id is None:
+            return
+        root = self.model.parameter_runtime().data_sets_root()
+        pairs: list[tuple[ComplexInstance, UUID]] = []
+        stack: list[ComplexInstance] = [ds_node]
+        while stack:
+            cur = stack.pop()
+            for child in list(cur.children):
+                if isinstance(child, ComplexInstance):
+                    stack.append(child)
+                    if self._node_model_type(child) == "MODEL.CAL_PARAM" and child.id is not None:
+                        pairs.append((cur, child.id))
+        if pairs:
+            self.model.delete_many(pairs)
+
+        rt = self.model.parameter_runtime()
+        try:
+            ad = rt.active_dataset()
+            if ad is not None and ad.id == ds_id:
+                rt.set_active_dataset_name(None)
+        except Exception:
+            pass
+        rt.repo.delete_data_set_and_parameters(ds_id)
+        self.model.delete(root, ds_id)
 
     def _ordered_selection_for_delete(self) -> list[Any]:
         """Stable delete order: connectors, then operators, then variables, then other types."""
@@ -1328,6 +1615,40 @@ class MinimalController:
             kept.append(hit)
         self.selection = kept
 
+    def _cmd_import(self, args: list[str]) -> str:
+        """``import dcm <DataSetRef> <filePath>`` — lädt Cal-Parameter aus einer DCM-Datei in den DataSet."""
+        if not args or args[0] != "dcm":
+            raise CommandError('import requires subcommand "dcm": import dcm <DataSetRef> <filePath>')
+        if len(args) < 3:
+            raise CommandError(
+                "import dcm requires <DataSetRef> and <filePath> (quote the path if it contains spaces)."
+            )
+        ds_ref = args[1]
+        raw_path = args[2]
+        p = Path(raw_path).expanduser()
+        if not p.is_file():
+            base = self.last_loaded_script_path
+            if base is not None:
+                alt = (base.parent / raw_path).expanduser().resolve()
+                if alt.is_file():
+                    p = alt
+        if not p.is_file():
+            raise CommandError(f"DCM file not found: {p}")
+        from synarius_core.parameters.dcm_io import import_dcm_for_dataset
+
+        try:
+            n = import_dcm_for_dataset(
+                self,
+                ds_ref,
+                str(p.resolve()),
+                progress_hook=self.dcm_import_progress_hook,
+                import_phase_hook=self.dcm_import_phase_hook,
+                cooperative_hook=self.dcm_import_cooperative_hook,
+            )
+        except ValueError as exc:
+            raise CommandError(str(exc)) from exc
+        return str(n)
+
     def _cmd_load(self, args: list[str]) -> str:
         if not args:
             raise CommandError('load requires "<scriptPath>".')
@@ -1360,6 +1681,10 @@ class MinimalController:
             if not isinstance(target, ComplexInstance):
                 raise CommandError("load into=<path> must resolve to ComplexInstance.")
             temp_controller.current = target
+
+        temp_controller.dcm_import_progress_hook = self.dcm_import_progress_hook
+        temp_controller.dcm_import_phase_hook = self.dcm_import_phase_hook
+        temp_controller.dcm_import_cooperative_hook = self.dcm_import_cooperative_hook
 
         command_trace: list[str] = []
         temp_controller.execute_script(script_path, command_trace=command_trace)

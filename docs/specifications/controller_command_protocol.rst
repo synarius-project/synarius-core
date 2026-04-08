@@ -92,7 +92,7 @@ Top-Level Command Set
      - New object reference
    * - ``select``
      - Set current selection
-     - ``select <ref...>`` or ``select`` (clear)
+     - ``select <ref...>``, ``select -p …``, ``select -m …``, or ``select`` (clear)
      - Selection updated
    * - ``set``
      - Set attribute(s) on a target
@@ -114,6 +114,10 @@ Top-Level Command Set
      - Reparent an object under another container
      - ``mv <ref> <destContainerPath>``
      - Object moved; variable registry updated when crossing the trash subtree
+   * - ``cp``
+     - Copy parameter payload between calibration-parameter nodes (parameters / DuckDB)
+     - ``cp cal_param <sourceRef> <destRef>``
+     - Destination CAL_PARAM updated from source; one-line status (for example ``ok <ref> -> <ref>``)
    * - ``undo``
      - Step backward in controller edit history
      - ``undo`` or ``undo <n>``
@@ -381,6 +385,8 @@ Error Behavior
 ----------------------
 
 - ``select <ref1> <ref2> ...`` replaces current selection in specified order.
+- ``select -p <ref1> <ref2> ...`` appends resolved objects to the existing selection (stable order, no duplicates).
+- ``select -m <ref1> <ref2> ...`` removes each resolved object from the current selection if present (order of remaining entries preserved; each reference must resolve).
 - ``select`` with no arguments clears the selection.
 - The model contains a dedicated ``trash`` folder under the root. Objects **not** already under that subtree are **moved into trash** (soft delete) when ``del`` runs; objects **already** in the trash subtree are **permanently** removed from the model.
 - ``del`` must not combine, in one command, objects that are in the trash subtree with objects that are not; implementations must fail with a clear error.
@@ -398,10 +404,33 @@ Note: ``@selection`` is reserved for ``set`` / ``get`` batch targets; ``@selecte
 - Moving across the boundary of the trash subtree updates the variable name registry (variables in trash do not count toward live registry entries).
 - The root model object and the canonical ``trash`` folder itself must not be moved.
 
+``cp`` Command
+--------------
+
+Copy numeric or text calibration-parameter **payload** (values, axes, and associated metadata in the parameters repository) from one ``MODEL.CAL_PARAM`` node to another. Both references must resolve to attached ``ComplexInstance`` nodes with that model type. The **destination** keeps its own ``parameter_id`` and ``data_set_id``; only the stored payload is replaced to match the source.
+
+Canonical form::
+
+   cp cal_param <sourceRef> <destRef>
+
+Semantics
+~~~~~~~~~
+
+- ``cal_param`` is the only supported subcommand in minimal implementations; other subcommands should be rejected with a clear usage error.
+- **Numeric** parameters: destination row is updated via the same repository path as a full cal-param write (values, axis arrays, axis names/units, category and scalar metadata fields written by that path). The destination keeps its existing ``source_identifier`` (and, for text parameters, ``conversion_ref``) so the target does not inherit the source’s provenance keys.
+- **Text** parameters (ASCII category): destination ``parameters_all`` fields are updated from the source for content-bearing columns; ``conversion_ref`` and ``source_identifier`` on the destination row are left unchanged. Source and destination must both be text parameters (mixed text/numeric copy fails).
+- **Undo:** ``cp`` is **not** required to participate in the linear undo/redo stack (implementations may treat it as a direct repository mutation without an inverse command).
+
+Error Behavior
+~~~~~~~~~~~~~~
+
+- Wrong arity, unknown subcommand, or non-``CAL_PARAM`` targets must fail with a clear error.
+- Repository validation errors (for example text onto numeric) propagate as command failures.
+
 ``undo`` and ``redo``
 ---------------------
 
-- Controllers may maintain a bounded linear undo history of user-visible mutations (for example ``set``, ``new``, ``select``, ``mv``, soft ``del``).
+- Controllers may maintain a bounded linear undo history of user-visible mutations (for example ``set``, ``new``, ``select``, ``mv``, soft ``del``). The ``cp`` command is not required to be undoable.
 - ``undo`` reapplies the inverse of the last recorded step; ``undo <n>`` applies ``n`` inverses in order (``n`` is a positive decimal integer). ``redo`` / ``redo <n>`` mirror this for steps that were undone.
 - Issuing a new undoable command after ``undo`` clears the redo stack (standard editor semantics).
 - ``load`` is **not** recorded in undo history; a successful ``load`` clears both undo and redo stacks.
@@ -542,6 +571,10 @@ A) Command Summary
      - Mutation
      - Object ref + container path
      - Reparent nodes (including restore from trash)
+   * - ``cp``
+     - Mutation (parameters)
+     - Two CAL_PARAM refs
+     - Copy calibration payload between datasets / parameters
    * - ``undo`` / ``redo``
      - History
      - Optional step count

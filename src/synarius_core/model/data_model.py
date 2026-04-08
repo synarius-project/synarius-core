@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Iterable, Iterator
+from typing import Any, Iterable, Iterator, Sequence
 from uuid import UUID, uuid4
 
 from synarius_core.variable_naming import validate_pin_name, validate_python_variable_name
@@ -1537,6 +1537,40 @@ class Model:
             node._detach_context()
             node.parent = None
         container.del_(obj_id)
+        self.sync_variable_mapping_entries()
+
+    def delete_many(self, items: Sequence[tuple[ComplexInstance, UUID]]) -> None:
+        """Like :meth:`delete` for each pair, but ``sync_variable_mapping_entries`` runs once at the end."""
+        if not items:
+            return
+        grouped: dict[ComplexInstance, set[UUID]] = {}
+        for container, obj_id in items:
+            grouped.setdefault(container, set()).add(obj_id)
+
+        for container, target_ids in grouped.items():
+            if not target_ids:
+                continue
+            kept_children: list[BaseObject] = []
+            removed_any = False
+            for child in list(container.children):
+                cid = child.id
+                if cid is None or cid not in target_ids:
+                    kept_children.append(child)
+                    continue
+                removed_any = True
+                for node in _iter_subtree(child):
+                    if isinstance(node, Variable):
+                        self.variable_registry.decrement(node.name)
+                for node in _iter_subtree(child):
+                    if node.id is not None:
+                        self.context.id_factory.unregister(node.id)
+                    node._detach_context()
+                    node.parent = None
+            if not removed_any:
+                continue
+            container.children = kept_children
+            container.children_by_hash_name = {c.hash_name: c for c in kept_children}
+            container._touch()
         self.sync_variable_mapping_entries()
 
     def paste(self, container: ComplexInstance, obj: BaseObject, *, remap_ids: bool = True) -> BaseObject:

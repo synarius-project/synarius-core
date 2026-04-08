@@ -13,81 +13,97 @@
 
           <SW-INSTANCE>
             <SHORT-NAME>P_VALUE</SHORT-NAME>
+            <LONG-NAME>HV traction inverter DC-link voltage trim</LONG-NAME>
             <CATEGORY>VALUE</CATEGORY>
             <SW-VALUE-CONT><SW-VALUES-PHYS><V>1.0</V></SW-VALUES-PHYS></SW-VALUE-CONT>
           </SW-INSTANCE>
           <SW-INSTANCE>
             <SHORT-NAME>P_DEPENDENT_VALUE</SHORT-NAME>
+            <LONG-NAME>Wheel-slip velocity dependent torque scale</LONG-NAME>
             <CATEGORY>DEPENDENT_VALUE</CATEGORY>
             <SW-VALUE-CONT><SW-VALUES-PHYS><V>2.0</V></SW-VALUES-PHYS></SW-VALUE-CONT>
           </SW-INSTANCE>
           <SW-INSTANCE>
             <SHORT-NAME>P_BOOLEAN</SHORT-NAME>
+            <LONG-NAME>Cruise velocity control enable flag</LONG-NAME>
             <CATEGORY>BOOLEAN</CATEGORY>
             <SW-VALUE-CONT><SW-VALUES-PHYS><V>1</V></SW-VALUES-PHYS></SW-VALUE-CONT>
           </SW-INSTANCE>
           <SW-INSTANCE>
             <SHORT-NAME>P_ASCII</SHORT-NAME>
+            <LONG-NAME>Torque map calibration label string</LONG-NAME>
             <CATEGORY>ASCII</CATEGORY>
             <SW-VALUE-CONT><SW-VALUES-PHYS><VT xml:space="preserve">hello</VT></SW-VALUES-PHYS></SW-VALUE-CONT>
           </SW-INSTANCE>
           <SW-INSTANCE>
             <SHORT-NAME>P_VAL_BLK</SHORT-NAME>
+            <LONG-NAME>Cylinder pressure sensor offset vector</LONG-NAME>
             <CATEGORY>VAL_BLK</CATEGORY>
             <SW-VALUE-CONT><SW-ARRAYSIZE><V>3</V></SW-ARRAYSIZE><SW-VALUES-PHYS><V>1</V><V>2</V><V>3</V></SW-VALUES-PHYS></SW-VALUE-CONT>
           </SW-INSTANCE>
           <SW-INSTANCE>
             <SHORT-NAME>P_CURVE</SHORT-NAME>
+            <LONG-NAME>Engine velocity torque limit curve</LONG-NAME>
             <CATEGORY>CURVE</CATEGORY>
             <SW-VALUE-CONT><SW-ARRAYSIZE><V>3</V></SW-ARRAYSIZE><SW-VALUES-PHYS><V>10</V><V>20</V><V>30</V></SW-VALUES-PHYS></SW-VALUE-CONT>
           </SW-INSTANCE>
           <SW-INSTANCE>
             <SHORT-NAME>P_MAP</SHORT-NAME>
+            <LONG-NAME>Boost pressure torque map vs velocity</LONG-NAME>
             <CATEGORY>MAP</CATEGORY>
             <SW-VALUE-CONT><SW-ARRAYSIZE><V>2</V><V>2</V></SW-ARRAYSIZE><SW-VALUES-PHYS><VG><V>1</V><V>2</V></VG><VG><V>3</V><V>4</V></VG></SW-VALUES-PHYS></SW-VALUE-CONT>
           </SW-INSTANCE>
           <SW-INSTANCE>
             <SHORT-NAME>P_COM_AXIS</SHORT-NAME>
+            <LONG-NAME>Throttle plate angular velocity axis</LONG-NAME>
             <CATEGORY>COM_AXIS</CATEGORY>
             <SW-VALUE-CONT><SW-ARRAYSIZE><V>3</V></SW-ARRAYSIZE><SW-VALUES-PHYS><V>0</V><V>5</V><V>10</V></SW-VALUES-PHYS></SW-VALUE-CONT>
           </SW-INSTANCE>
           <SW-INSTANCE>
             <SHORT-NAME>P_CURVE_AXIS</SHORT-NAME>
+            <LONG-NAME>Brake pedal velocity axis samples</LONG-NAME>
             <CATEGORY>CURVE_AXIS</CATEGORY>
             <SW-VALUE-CONT><SW-ARRAYSIZE><V>3</V></SW-ARRAYSIZE><SW-VALUES-PHYS><V>0</V><V>1</V><V>2</V></SW-VALUES-PHYS></SW-VALUE-CONT>
           </SW-INSTANCE>
           <SW-INSTANCE>
             <SHORT-NAME>P_RES_AXIS</SHORT-NAME>
+            <LONG-NAME>Fuel injection timing vs crank velocity breakpoints</LONG-NAME>
             <CATEGORY>RES_AXIS</CATEGORY>
             <SW-VALUE-CONT><SW-ARRAYSIZE><V>2</V></SW-ARRAYSIZE><SW-VALUES-PHYS><VG><V>10</V><V>1</V></VG><VG><V>20</V><V>2</V></VG></SW-VALUES-PHYS></SW-VALUE-CONT>
           </SW-INSTANCE>
           <SW-INSTANCE>
             <SHORT-NAME>P_STRUCTURE</SHORT-NAME>
+            <LONG-NAME>Motor torque and velocity setpoint pair</LONG-NAME>
             <CATEGORY>STRUCTURE</CATEGORY>
             <SW-VALUE-CONT><SW-VALUES-PHYS><VG><V>1</V><V>2</V></VG></SW-VALUES-PHYS></SW-VALUE-CONT>
           </SW-INSTANCE>
           <SW-INSTANCE>
             <SHORT-NAME>P_UNION</SHORT-NAME>
+            <LONG-NAME>Gearbox shift torque index selector</LONG-NAME>
             <CATEGORY>UNION</CATEGORY>
             <SW-VALUE-CONT><SW-VALUES-PHYS><V>7</V></SW-VALUES-PHYS></SW-VALUE-CONT>
           </SW-INSTANCE>
           <SW-INSTANCE>
             <SHORT-NAME>P_VALUE_ARRAY</SHORT-NAME>
+            <LONG-NAME>Wheel speed fault mask matrix</LONG-NAME>
             <CATEGORY>VALUE_ARRAY</CATEGORY>
             <SW-VALUE-CONT><SW-ARRAYSIZE><V>2</V><V>2</V></SW-ARRAYSIZE><SW-VALUES-PHYS><VG><V>1</V><V>2</V></VG><VG><V>3</V><V>4</V></VG></SW-VALUES-PHYS></SW-VALUE-CONT>
           </SW-INSTANCE>
           <SW-INSTANCE>
             <SHORT-NAME>P_CURVE_ARRAY</SHORT-NAME>
+            <LONG-NAME>Gear-dependent torque curves vs velocity</LONG-NAME>
             <CATEGORY>CURVE_ARRAY</CATEGORY>
             <SW-VALUE-CONT><SW-ARRAYSIZE><V>2</V><V>3</V></SW-ARRAYSIZE><SW-VALUES-PHYS><VG><V>1</V><V>2</V><V>3</V></VG><VG><V>4</V><V>5</V><V>6</V></VG></SW-VALUES-PHYS></SW-VALUE-CONT>
           </SW-INSTANCE>
           <SW-INSTANCE>
             <SHORT-NAME>P_MAP_ARRAY</SHORT-NAME>
+            <LONG-NAME>Stability torque map bank vs slip velocity</LONG-NAME>
             <CATEGORY>MAP_ARRAY</CATEGORY>
             <SW-VALUE-CONT><SW-ARRAYSIZE><V>2</V><V>2</V><V>2</V></SW-ARRAYSIZE><SW-VALUES-PHYS><VG><V>1</V><V>2</V></VG><VG><V>3</V><V>4</V></VG></SW-VALUES-PHYS></SW-VALUE-CONT>
           </SW-INSTANCE>
           <SW-INSTANCE>
             <SHORT-NAME>P_STRUCTURE_ARRAY</SHORT-NAME>
+            <LONG-NAME>Axle torque calibration structure table</LONG-NAME>
             <CATEGORY>STRUCTURE_ARRAY</CATEGORY>
             <SW-VALUE-CONT><SW-ARRAYSIZE><V>2</V></SW-ARRAYSIZE><SW-VALUES-PHYS><VG><V>11</V><V>12</V></VG><VG><V>21</V><V>22</V></VG></SW-VALUES-PHYS></SW-VALUE-CONT>
           </SW-INSTANCE>

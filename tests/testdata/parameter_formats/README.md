@@ -15,11 +15,14 @@ Diese Beispieldateien wurden auf Basis oeffentlich zugaenglicher Quellen erstell
   - https://raw.githubusercontent.com/muellerj/mat2dcm/master/spec/kennfeld_spec.m
 
 Dateien:
-- `dcm/dcm2_minimal_all_types_once.dcm` (mehrere Kennlinien/-felder mit unterschiedlichen Rastern und nichtlinearen Achsen/Werten)
-- `dcm/dcm2_maximal_10000_kennwerte.dcm` (Stress: 10k Kenngroessen; Kennlinien/-felder variabel gross und nichtlinear — neu erzeugen mit `synarius-core/scripts/generate_dcm2_maximal_stress.py`)
+- `dcm/dcm2_minimal_all_types_once.dcm` (mehrere Kennlinien/-felder mit unterschiedlichen Rastern und nichtlinearen Achsen/Werten; inkl. mehrdimensionalem `FESTWERTEBLOCK <nx> @ <ny>`)
+- `dcm/dcm2_maximal_10000_kennwerte.dcm` (Stress: 10k Kenngroessen; Kennlinien/-felder variabel gross und nichtlinear; `FESTWERTEBLOCK` als Mix aus 1D und 2D (`<nx> @ <ny>`) — neu erzeugen mit `synarius-core/scripts/generate_dcm2_maximal_stress.py`)
+- `dcm/dcm2_maximal_10000_kennwerte_mixed_3way.dcm` (Variante: 1/3 der Kenngroessen **zufaellig** (Seed 42) entfaellt, 1/3 **zufaellig** geaendert — je Block nur Werte, nur Achsen oder beides —, 1/3 identisch — erzeugbar mit `synarius-core/scripts/generate_maximal_mixed_variants.py`)
 - `dcm/dcm2_invalid_example.dcm`
 - `cdfx/cdfx_minimal_all_types_once.cdfx`
 - `cdfx/cdfx_maximal_10000_kennwerte.cdfx`
+- `cdfx/cdfx_maximal_10000_kennwerte_mixed_3way.cdfx` (Variante: wie DCM zufaellige 1/3/1/3/1/3-Partition (Seed 42); geaenderte Instanzen vollstaendig mutiert)
 - `cdfx/cdfx_maximal_10000_kennwerte_with_a2l_dependency.cdfx`
+- `cdfx/cdfx_maximal_10000_kennwerte_with_a2l_dependency_mixed_3way.cdfx` (wie oben, A2L-Referenz bleibt erhalten; Partition zufaellig wie DCM)
 - `cdfx/cdfx_invalid_example.cdfx`
 - `a2l/asap2_demo_v171_minimal.a2l`

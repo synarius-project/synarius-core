@@ -1,0 +1,15 @@
+# Zwei große DCM-Referenzdaten unter @main/parameters/data_sets anlegen und importieren.
+#
+# Nutzung in ParaWiz: „Open Parameter Script“ (führt load … aus). Relative Pfade in
+# „import dcm“ beziehen sich auf den Ordner dieser .syn-Datei (nicht auf das Prozess-CWD).
+# Alternativ absolute Pfade zu den .dcm-Dateien verwenden.
+#
+cd @main/parameters/data_sets
+new DataSet dcm2_maximal_10000_kennwerte source_path="dcm2_maximal_10000_kennwerte.dcm" source_format=dcm
+cd dcm2_maximal_10000_kennwerte
+import dcm . dcm2_maximal_10000_kennwerte.dcm
+cd ..
+new DataSet dcm2_maximal_10000_kennwerte_mixed_3way source_path="dcm2_maximal_10000_kennwerte_mixed_3way.dcm" source_format=dcm
+cd dcm2_maximal_10000_kennwerte_mixed_3way
+import dcm . dcm2_maximal_10000_kennwerte_mixed_3way.dcm
+cd ..

@@ -34,18 +34,21 @@ class DcmIoTest(unittest.TestCase):
         self.assertEqual(scalar.category, "VALUE")
         self.assertEqual(scalar.values.ndim, 0)
         self.assertEqual(float(scalar.values.item()), 42.0)
-        self.assertEqual(scalar.display_name, "Minimal scalar value")
+        self.assertEqual(scalar.display_name, "High-voltage bus reference voltage")
         self.assertEqual(scalar.unit, "V")
         self.assertIn("VAR=K_MIN_SCALAR", scalar.source_identifier)
-        self.assertIn("FUNKTION=BaseCalibration", scalar.source_identifier)
+        self.assertIn("FUNKTION=VehicleEnergyCalibration", scalar.source_identifier)
 
         curve = next(s for s in specs if s.name == "K_MIN_LINE")
-        self.assertEqual(curve.axis_names.get(0), "Engine speed")
+        self.assertEqual(curve.axis_names.get(0), "Wheel angular velocity")
         self.assertEqual(curve.axis_units.get(0), "rpm")
+        block = next(s for s in specs if s.name == "K_MIN_BLOCK")
+        self.assertEqual(block.category, "MATRIX")
+        self.assertEqual(tuple(block.values.shape), (4, 2))
 
         m = next(s for s in specs if s.name == "K_MIN_MAP")
-        self.assertEqual(m.axis_names.get(0), "Engine speed")
-        self.assertEqual(m.axis_names.get(1), "Normalized load")
+        self.assertEqual(m.axis_names.get(0), "Crankshaft velocity")
+        self.assertEqual(m.axis_names.get(1), "Indicated torque demand fraction")
         self.assertEqual(m.axis_units.get(0), "rpm")
         self.assertEqual(m.axis_units.get(1), "%")
 
@@ -55,6 +58,8 @@ class DcmIoTest(unittest.TestCase):
         m58 = next(s for s in specs if s.name == "K_MIN_MAP_5X8")
         self.assertEqual(m58.category, "MAP")
         self.assertEqual(tuple(m58.values.shape), (5, 8))
+        axis = next(s for s in specs if s.name == "K_MIN_AXIS")
+        self.assertEqual(axis.category, "NODE_ARRAY")
 
     def test_import_creates_cal_params(self) -> None:
         p = Path(__file__).resolve().parent / "testdata" / "parameter_formats" / "dcm" / "dcm2_minimal_all_types_once.dcm"
@@ -64,15 +69,16 @@ class DcmIoTest(unittest.TestCase):
         self.assertTrue(ds_ref)
         n = import_dcm_for_dataset(ctl, ds_ref, str(p))
         self.assertEqual(n, 10)
+        ctl.execute(f"cd {ds_ref}")
         out = ctl.execute("ls") or ""
         self.assertIn("K_MIN_SCALAR", out)
         self.assertIn("K_MIN_MAP", out)
-        self.assertEqual((ctl.execute("get K_MIN_SCALAR.display_name") or "").strip(), "Minimal scalar value")
+        self.assertEqual((ctl.execute("get K_MIN_SCALAR.display_name") or "").strip(), "High-voltage bus reference voltage")
         self.assertEqual((ctl.execute("get K_MIN_SCALAR.unit") or "").strip(), "V")
-        self.assertEqual((ctl.execute("get K_MIN_LINE.x1_name") or "").strip(), "Engine speed")
+        self.assertEqual((ctl.execute("get K_MIN_LINE.x1_name") or "").strip(), "Wheel angular velocity")
         self.assertEqual((ctl.execute("get K_MIN_LINE.x1_unit") or "").strip(), "rpm")
-        self.assertEqual((ctl.execute("get K_MIN_MAP.x1_name") or "").strip(), "Engine speed")
-        self.assertEqual((ctl.execute("get K_MIN_MAP.x2_name") or "").strip(), "Normalized load")
+        self.assertEqual((ctl.execute("get K_MIN_MAP.x1_name") or "").strip(), "Crankshaft velocity")
+        self.assertEqual((ctl.execute("get K_MIN_MAP.x2_name") or "").strip(), "Indicated torque demand fraction")
         self.assertEqual((ctl.execute("get K_MIN_MAP.x2_unit") or "").strip(), "%")
 
         repo = ctl.model.parameter_runtime().repo
@@ -86,7 +92,7 @@ class DcmIoTest(unittest.TestCase):
             raise AssertionError(nm)
 
         self.assertEqual(repo.get_parameter_table_summary(_pid("K_MIN_SCALAR")).value_label, "42.0")
-        self.assertEqual(repo.get_parameter_table_summary(_pid("K_MIN_BLOCK")).value_label, "8 Values")
+        self.assertEqual(repo.get_parameter_table_summary(_pid("K_MIN_BLOCK")).value_label, "4X2 Values")
         self.assertEqual(repo.get_parameter_table_summary(_pid("K_MIN_LINE")).value_label, "8 Values")
         self.assertEqual(repo.get_parameter_table_summary(_pid("K_MIN_MAP")).value_label, "6X10 Values")
         self.assertEqual(repo.get_parameter_table_summary(_pid("K_MIN_MAP_3X5")).value_label, "5X3 Values")

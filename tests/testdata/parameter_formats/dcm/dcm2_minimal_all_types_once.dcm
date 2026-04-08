@@ -6,24 +6,25 @@
 KONSERVIERUNG_FORMAT 2.0
 
 FESTWERT K_MIN_SCALAR
- LANGNAME "Minimal scalar value"
+ LANGNAME "High-voltage bus reference voltage"
  EINHEIT V
  VAR K_MIN_SCALAR
- FUNKTION BaseCalibration
+ FUNKTION VehicleEnergyCalibration
  WERT 42.000
 END
 
-FESTWERTEBLOCK K_MIN_BLOCK 8
- LANGNAME "Minimal value block"
+FESTWERTEBLOCK K_MIN_BLOCK 4 @ 2
+ LANGNAME "Inverter phase current sensor offset matrix"
  EINHEIT A
  VAR K_MIN_BLOCK
- WERT 1.150 1.333 1.611 2.034 2.678 3.658 5.150 7.421
+ WERT 1.150 1.333 1.611 2.034
+ WERT 2.678 3.658 5.150 7.421
 END
 
 KENNLINIE K_MIN_LINE 8
- LANGNAME "Torque over speed"
+ LANGNAME "Wheel output torque vs wheel angular velocity"
  EINHEIT Nm
- LANGNAME_X "Engine speed"
+ LANGNAME_X "Wheel angular velocity"
  EINHEIT_X rpm
  VAR K_MIN_LINE
  ST/X 0.100 0.850 2.200 3.650 5.050 6.400 8.250 10.700
@@ -32,9 +33,9 @@ END
 
 * Kurve 5 Punkte: ST/X nicht-aquidistant; WERT = 10 + 2*x + 0.3*x^2 + 0.01*x^3
 KENNLINIE K_MIN_LINE_NL5 5
- LANGNAME "Short nonlinear torque ramp"
+ LANGNAME "Accelerator pedal torque demand ramp"
  EINHEIT Nm
- LANGNAME_X "Pedal"
+ LANGNAME_X "Pedal travel percentage"
  EINHEIT_X "%"
  VAR K_MIN_LINE_NL5
  ST/X 0.000 0.350 1.200 4.500 18.000
@@ -43,9 +44,9 @@ END
 
 * Kurve 11 Punkte: ST/X progressiv; WERT mischung Saettigung + Schwingung
 KENNLINIE K_MIN_LINE_NL11 11
- LANGNAME "Wide speed sweep"
+ LANGNAME "E-machine shaft power vs rotor velocity sweep"
  EINHEIT kW
- LANGNAME_X "Shaft speed"
+ LANGNAME_X "Rotor angular velocity"
  EINHEIT_X rad/s
  VAR K_MIN_LINE_NL11
  ST/X 0.000 0.200 0.550 1.100 2.000 3.400 5.500 9.000 14.000 22.000 35.000
@@ -54,13 +55,13 @@ END
 
 * K_MIN_MAP: 6 x 10 Stuetzstellen; z(x,y) = 0.08*x^3 - 0.05*y^3 + 0.12*x^2*y + 0.07*x*y^2 + 0.15*x*y (kubisch)
 KENNFELD K_MIN_MAP 6 10
- LANGNAME "Load map"
+ LANGNAME "Injected fuel mass vs crank velocity and torque-related load"
  EINHEIT mg/stroke
- LANGNAME_X "Engine speed"
+ LANGNAME_X "Crankshaft velocity"
  EINHEIT_X rpm
- LANGNAME_Y "Normalized load"
+ LANGNAME_Y "Indicated torque demand fraction"
  EINHEIT_Y "%"
- FUNKTION AirPath
+ FUNKTION EngineAirCharge
  ST/X 0.000 1.000 2.000 3.000 4.000 5.000
  ST/Y 0.000
  WERT 0.000 0.080 0.640 2.160 5.120 10.000
@@ -86,11 +87,11 @@ END
 
 * Kennfeld 3x5: nichtlineare Achsen; Z mischt Kreuzterm, Sin, rational
 KENNFELD K_MIN_MAP_3X5 5 3
- LANGNAME "Small mixed map"
+ LANGNAME "Brake hydraulic pressure vs master travel and pressure rise time"
  EINHEIT bar
- LANGNAME_X "x1"
+ LANGNAME_X "Master cylinder rod displacement"
  EINHEIT_X m
- LANGNAME_Y "x2"
+ LANGNAME_Y "Hydraulic pressure build time"
  EINHEIT_Y s
  VAR K_MIN_MAP_3X5
  ST/X 0.000 0.500 1.800 4.200 9.000
@@ -104,13 +105,13 @@ END
 
 * Kennfeld 4x7: Achsen mit zunehmenden Abstaenden; Z = sqrt(1+x)*log(1+y)+0.4*sin(x-y)
 KENNFELD K_MIN_MAP_4X7 4 7
- LANGNAME "Pressure vs temp and flow"
+ LANGNAME "Low-pressure fuel rail pressure vs pump flow rate and coolant temperature"
  EINHEIT kPa
- LANGNAME_X "Flow"
+ LANGNAME_X "Fuel delivery volume flow"
  EINHEIT_X l/min
- LANGNAME_Y "Temperature"
+ LANGNAME_Y "Engine block coolant temperature"
  EINHEIT_Y C
- FUNKTION HydraulicsDemo
+ FUNKTION ThermalHydraulicsLoop
  VAR K_MIN_MAP_4X7
  ST/X 0.000 0.700 2.500 8.000
  ST/Y 0.000
@@ -131,11 +132,11 @@ END
 
 * Kennfeld 5x8: x negativ bis positiv; Z mit Potenz und tanh(y)
 KENNFELD K_MIN_MAP_5X8 5 8
- LANGNAME "Asymmetric gain surface"
+ LANGNAME "Stability yaw torque vs lateral error and lateral error velocity"
  EINHEIT ""
- LANGNAME_X "Error"
+ LANGNAME_X "Lateral path error"
  EINHEIT_X ""
- LANGNAME_Y "Rate"
+ LANGNAME_Y "Lateral error velocity"
  EINHEIT_Y ""
  VAR K_MIN_MAP_5X8
  ST/X -1.000 -0.200 0.500 1.500 4.000
@@ -158,9 +159,9 @@ KENNFELD K_MIN_MAP_5X8 5 8
 END
 
 STUETZSTELLENVERTEILUNG K_MIN_AXIS 8
- LANGNAME "Axis support points"
+ LANGNAME "Ignition timing support vs crank angle velocity index"
  EINHEIT deg
- LANGNAME_X "Ignition angle"
+ LANGNAME_X "Crank angle"
  EINHEIT_X deg
  VAR K_MIN_AXIS
  ST/X 0.050 1.180 2.730 4.600 7.220 11.050 15.900 22.700

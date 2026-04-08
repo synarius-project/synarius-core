@@ -13,6 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+      # Pinned to supported Python (see requires-python in pyproject.toml).
       - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
