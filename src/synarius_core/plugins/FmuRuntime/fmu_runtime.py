@@ -42,6 +42,32 @@ def _var_stim_value_t0(var: Variable) -> float | None:
         return high if 0.0 >= t_sw else low
     return None
 
+
+def _fmu_parameter_scalar_from_variable(var: Variable) -> float:
+    """Numeric value for an FMU *parameter* pin driven by a diagram :class:`Variable`.
+
+    When ``stim_kind`` is off, dataflow conventionally uses :attr:`Variable.value`, but the Studio
+    stimulation UI and console often still set ``stim_p0`` (always logged on OK). If ``value`` is
+    still ``0.0`` while ``stim_p0`` is non-zero, treat ``stim_p0`` as the authored constant so log,
+    diagram overlay, and FMU stay aligned. Explicit ``value == 0`` with stale non-zero ``stim_p0``
+    is ambiguous: clear ``stim_p0`` or set ``value`` to zero after syncing from the dialog.
+    """
+    try:
+        v = float(var.value)
+    except (TypeError, ValueError):
+        try:
+            return float(var.get("stim_p0") or 0.0)
+        except (TypeError, ValueError):
+            return 0.0
+    try:
+        p0 = float(var.get("stim_p0") or 0.0)
+    except (TypeError, ValueError):
+        p0 = 0.0
+    if v == 0.0 and p0 != 0.0:
+        return p0
+    return v
+
+
 def _resolve_fmu_archive_path(raw_str: str, ctx: Any) -> Path | None:
     """Resolve ``fmu.path`` for :func:`init_fmu`.
 
@@ -214,17 +240,9 @@ class FmuRuntimePlugin:
                 stop = _float_attr(node, "fmu.stop_time", 1.0e9)
                 slave.setupExperiment(startTime=start, stopTime=stop)
                 slave.enterInitializationMode()
-                apply_params_on_init = bool(ctx.options.get("fmu_apply_parameters_on_init", False))
-                g_vr = None
-                for _pn, _vr in parameter_input_map:
-                    if str(_pn) == "g":
-                        g_vr = int(_vr)
-                        break
-                if g_vr is not None:
-                    try:
-                        g_before = float(slave.getReal([g_vr])[0])
-                    except Exception:
-                        g_before = None
+                # Default True: diagram wires to FMU parameter pins (e.g. BouncingBall ``g``) must override
+                # modelDescription start values whenever the host does not opt out explicitly.
+                apply_params_on_init = bool(ctx.options.get("fmu_apply_parameters_on_init", True))
                 if parameter_input_map and apply_params_on_init:
                     ws = ctx.scalar_workspace or {}
                     inc = compiled.incoming.get(uid, {})
@@ -266,45 +284,18 @@ class FmuRuntimePlugin:
                                     pvrs.append(vr)
                                     ppins.append(str(pin_name))
                                     continue
-                            try:
-                                pvals.append(float(src_node.value))
-                                psrc.append(
-                                    {
-                                        "pin": str(pin_name),
-                                        "source_name": str(src_node.name),
-                                        "source_type": "Variable.value",
-                                        "source_value": float(src_node.value),
-                                        "stim_kind": str(src_node.get("stim_kind") or ""),
-                                        "stim_p0": float(src_node.get("stim_p0") or 0.0),
-                                    }
-                                )
-                            except (TypeError, ValueError):
-                                # Stimulation-driven parameters may not have a numeric ``value`` yet at init-time.
-                                try:
-                                    from synarius_core.dataflow_sim.stimulation import stimulation_value
-
-                                    stim_v = stimulation_value(src_node, 0.0)
-                                    pvals.append(float(stim_v) if stim_v is not None else 0.0)
-                                    psrc.append(
-                                        {
-                                            "pin": str(pin_name),
-                                            "source_name": str(src_node.name),
-                                            "source_type": "stim_fallback",
-                                            "source_value": float(stim_v) if stim_v is not None else 0.0,
-                                            "stim_kind": str(src_node.get("stim_kind") or ""),
-                                            "stim_p0": float(src_node.get("stim_p0") or 0.0),
-                                        }
-                                    )
-                                except Exception:
-                                    pvals.append(0.0)
-                                    psrc.append(
-                                        {
-                                            "pin": str(pin_name),
-                                            "source_name": str(src_node.name),
-                                            "source_type": "fallback_zero",
-                                            "source_value": 0.0,
-                                        }
-                                    )
+                            eff = _fmu_parameter_scalar_from_variable(src_node)
+                            pvals.append(float(eff))
+                            psrc.append(
+                                {
+                                    "pin": str(pin_name),
+                                    "source_name": str(src_node.name),
+                                    "source_type": "Variable.value_or_stim_p0",
+                                    "source_value": float(eff),
+                                    "stim_kind": str(src_node.get("stim_kind") or ""),
+                                    "stim_p0": float(src_node.get("stim_p0") or 0.0),
+                                }
+                            )
                         else:
                             ws_val = scalar_ws_read(ws, raw, node_by_id=nb)
                             pvals.append(ws_val)
@@ -318,14 +309,6 @@ class FmuRuntimePlugin:
                             )
                         pvrs.append(vr)
                         ppins.append(str(pin_name))
-                    # Preserve default sign semantics specifically for gravity parameter ``g``.
-                    if g_vr is not None and g_before is not None and g_before < 0.0:
-                        for i, vr in enumerate(pvrs):
-                            if int(vr) != int(g_vr):
-                                continue
-                            if pvals[i] > 0.0:
-                                pvals[i] = -float(abs(pvals[i]))
-                            break
                     if pvrs:
                         slave.setReal(pvrs, pvals)
                 elif parameter_input_map and not apply_params_on_init:
