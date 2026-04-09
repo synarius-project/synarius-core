@@ -1176,7 +1176,7 @@ class MinimalController:
     def _format_print_dataset_node(self, obj: ComplexInstance) -> str:
         lines = [
             f"Datensatz: {obj.name}",
-            f"Typ: PARAMETER_DATA_SET",
+            "Typ: PARAMETER_DATA_SET",
             f"ID: {obj.id}",
         ]
         try:

@@ -511,7 +511,12 @@ def import_dcm_for_dataset(
 
     write_hook = None
     if progress_hook is not None:
-        write_hook = lambda d, _t, tt=total, uh=umax, ph=progress_hook: ph(tt + d, uh)
+        _base = total
+        _um = umax
+        _prog = progress_hook
+
+        def write_hook(d: int, _t: int) -> None:
+            _prog(_base + d, _um)
 
     rt.register_cal_param_nodes_bulk_from_import(
         pairs,
