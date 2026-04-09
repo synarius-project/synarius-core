@@ -7,7 +7,7 @@ from io import BytesIO
 import json
 from pathlib import Path
 from typing import Any, Callable, Iterator, Sequence
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import numpy as np
 
@@ -188,6 +188,9 @@ class ParametersRepository:
             );
             """
         )
+        self._con.execute(
+            "CREATE INDEX IF NOT EXISTS idx_parameters_all_data_set_id ON parameters_all(data_set_id);"
+        )
 
     @contextmanager
     def transaction(self) -> Iterator[None]:
@@ -246,21 +249,114 @@ class ParametersRepository:
             ],
         )
 
-    def delete_data_set_and_parameters(self, data_set_id: UUID) -> int:
-        """Remove all parameters belonging to ``data_set_id`` and the ``data_sets`` row. Returns parameter count."""
+    def delete_parameters_for_data_set(
+        self, data_set_id: UUID, *, remove_data_set_row: bool = False
+    ) -> int:
+        """Remove DuckDB parameter rows for ``data_set_id``. Optionally drop the ``data_sets`` row.
+
+        Returns the number of parameters removed.
+        """
+        ds_s = str(data_set_id)
+        cnt_row = self._con.execute(
+            "SELECT COUNT(*) FROM parameters_all WHERE data_set_id = ?",
+            [ds_s],
+        ).fetchone()
+        n = int(cnt_row[0]) if cnt_row is not None else 0
+        sub = "(SELECT parameter_id FROM parameters_all WHERE data_set_id = ?)"
+        with self.transaction():
+            if n > 0:
+                self._con.execute(f"DELETE FROM parameter_axis_meta WHERE parameter_id IN {sub}", [ds_s])
+                self._con.execute(f"DELETE FROM parameter_axes WHERE parameter_id IN {sub}", [ds_s])
+                self._con.execute(f"DELETE FROM parameter_values WHERE parameter_id IN {sub}", [ds_s])
+                self._con.execute("DELETE FROM parameters_all WHERE data_set_id = ?", [ds_s])
+            if remove_data_set_row:
+                self._con.execute("DELETE FROM data_sets WHERE id = ?", [ds_s])
+        return n
+
+    def count_parameters_for_data_set(self, data_set_id: UUID) -> int:
+        """Number of rows in ``parameters_all`` for ``data_set_id``."""
+        row = self._con.execute(
+            "SELECT COUNT(*) FROM parameters_all WHERE data_set_id = ?",
+            [str(data_set_id)],
+        ).fetchone()
+        return int(row[0]) if row is not None else 0
+
+    def list_parameter_ids_for_data_set(self, data_set_id: UUID) -> list[UUID]:
+        """All ``parameter_id`` values in ``data_set_id``, ordered by ``name`` (case-insensitive)."""
         rows = self._con.execute(
-            "SELECT parameter_id FROM parameters_all WHERE data_set_id = ?",
+            "SELECT parameter_id FROM parameters_all WHERE data_set_id = ? ORDER BY LOWER(name)",
             [str(data_set_id)],
         ).fetchall()
-        pid_strs = [str(r[0]) for r in rows]
+        return [UUID(str(r[0])) for r in rows]
+
+    def delete_data_set_and_parameters(self, data_set_id: UUID) -> int:
+        """Remove all parameters belonging to ``data_set_id`` and the ``data_sets`` row. Returns parameter count."""
+        return self.delete_parameters_for_data_set(data_set_id, remove_data_set_row=True)
+
+    def swap_parameter_data_set_ids(self, a_id: UUID, b_id: UUID) -> None:
+        """Exchange ``data_set_id`` for all rows in ``parameters_all`` between the two sets.
+
+        Uses a temporary UUID not present in ``data_sets``; DuckDB schema has no FK constraint.
+        """
+        sa, sb = str(a_id), str(b_id)
+        if sa == sb:
+            return
+        temp = str(uuid4())
         with self.transaction():
-            for pid_s in pid_strs:
-                self._con.execute("DELETE FROM parameter_axis_meta WHERE parameter_id = ?", [pid_s])
-                self._con.execute("DELETE FROM parameter_axes WHERE parameter_id = ?", [pid_s])
-                self._con.execute("DELETE FROM parameter_values WHERE parameter_id = ?", [pid_s])
-                self._con.execute("DELETE FROM parameters_all WHERE parameter_id = ?", [pid_s])
-            self._con.execute("DELETE FROM data_sets WHERE id = ?", [str(data_set_id)])
-        return len(pid_strs)
+            self._con.execute(
+                "UPDATE parameters_all SET data_set_id = ? WHERE data_set_id = ?",
+                [temp, sa],
+            )
+            self._con.execute(
+                "UPDATE parameters_all SET data_set_id = ? WHERE data_set_id = ?",
+                [sa, sb],
+            )
+            self._con.execute(
+                "UPDATE parameters_all SET data_set_id = ? WHERE data_set_id = ?",
+                [sb, temp],
+            )
+
+    def reconcile_swapped_data_set_rows(
+        self,
+        id_a: UUID,
+        row_a: tuple[str, str, str, str],
+        id_b: UUID,
+        row_b: tuple[str, str, str, str],
+    ) -> None:
+        """Schreibt zwei ``data_sets``-Zeilen auf getauschte Modell-Metadaten ohne UNIQUE-Konflikt auf ``name``.
+
+        ``row_*`` = ``(name, source_format, source_path, source_hash)`` pro Satz-ID.
+        Zwei UPDATEs mit finalem ``name`` würden kurz zwei gleiche Namen erzeugen; daher zuerst
+        eindeutige Platzhalter-Namen, dann Zielwerte (in einer Transaktion).
+        """
+        sa, sb = str(id_a), str(id_b)
+        if sa == sb:
+            return
+        na, sfa, spa, sha = (str(x) for x in row_a)
+        nb, sfb, spb, shb = (str(x) for x in row_b)
+        it_a = _now_iso() if (spa or sha) else ""
+        it_b = _now_iso() if (spb or shb) else ""
+        t1 = f"__synarius_swap_{uuid4().hex}__"
+        t2 = f"__synarius_swap_{uuid4().hex}__"
+        with self.transaction():
+            self._con.execute("UPDATE data_sets SET name = ? WHERE id = ?", [t1, sa])
+            self._con.execute("UPDATE data_sets SET name = ? WHERE id = ?", [t2, sb])
+            self._con.execute(
+                """
+                UPDATE data_sets
+                SET name = ?, source_format = ?, source_path = ?, source_hash = ?, import_time = ?
+                WHERE id = ?
+                """,
+                [na, sfa, spa, sha, it_a, sa],
+            )
+            self._con.execute(
+                """
+                UPDATE data_sets
+                SET name = ?, source_format = ?, source_path = ?, source_hash = ?, import_time = ?
+                WHERE id = ?
+                """,
+                [nb, sfb, spb, shb, it_b, sb],
+            )
 
     # ---- parameter records ------------------------------------------------
 
@@ -334,7 +430,7 @@ class ParametersRepository:
         ids = list(dict.fromkeys(parameter_ids))
         if not ids:
             return out
-        chunk_size = 500
+        chunk_size = 1200
         for start in range(0, len(ids), chunk_size):
             chunk = ids[start : start + chunk_size]
             placeholders = ",".join(["?"] * len(chunk))
@@ -938,7 +1034,7 @@ class ParametersRepository:
             return {}
 
         out: dict[UUID, ParameterCompareFingerprints] = {}
-        chunk_size = 500
+        chunk_size = 1200
         for start in range(0, len(uniq), chunk_size):
             chunk = uniq[start : start + chunk_size]
             ph = ",".join(["?"] * len(chunk))
@@ -1023,7 +1119,7 @@ class ParametersRepository:
             return {}
 
         out: dict[UUID, ParameterRecord] = {}
-        chunk_size = 500
+        chunk_size = 1200
         for start in range(0, len(uniq), chunk_size):
             chunk = uniq[start : start + chunk_size]
             ph = ",".join(["?"] * len(chunk))

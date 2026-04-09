@@ -1,6 +1,10 @@
+import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+
+import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
@@ -99,6 +103,47 @@ class DcmIoTest(unittest.TestCase):
         self.assertEqual(repo.get_parameter_table_summary(_pid("K_MIN_MAP_4X7")).value_label, "4X7 Values")
         self.assertEqual(repo.get_parameter_table_summary(_pid("K_MIN_MAP_5X8")).value_label, "5X8 Values")
         self.assertEqual(repo.get_parameter_table_summary(_pid("K_MIN_AXIS")).value_label, "8 Values")
+
+    def test_write_roundtrip_minimal_all_types(self) -> None:
+        p = Path(__file__).resolve().parent / "testdata" / "parameter_formats" / "dcm" / "dcm2_minimal_all_types_once.dcm"
+        ctl = MinimalController()
+        ctl.execute("cd @main/parameters/data_sets")
+        ds_ref = (ctl.execute(f'new DataSet DcmWriteRt source_path="{p.as_posix()}" source_format=dcm') or "").strip()
+        self.assertTrue(ds_ref)
+        n = import_dcm_for_dataset(ctl, ds_ref, str(p))
+        self.assertEqual(n, 10)
+        ctl.model.parameter_runtime().set_active_dataset_name("DcmWriteRt")
+        fd, out_path = tempfile.mkstemp(suffix=".dcm")
+        os.close(fd)
+        try:
+            r = ctl.execute(f'write "{out_path}"')
+            self.assertEqual(r, "10")
+            text = Path(out_path).read_text(encoding="utf-8")
+            wspec = parse_dcm_specs(text)
+            ospec = parse_dcm_specs(p.read_text(encoding="utf-8"))
+        finally:
+            os.unlink(out_path)
+        self.assertEqual({s.name for s in wspec}, {s.name for s in ospec})
+
+        def _by_name(specs):
+            return {s.name: s for s in specs}
+
+        wo, oo = _by_name(wspec), _by_name(ospec)
+        for nm in oo:
+            a, b = wo[nm], oo[nm]
+            self.assertEqual(a.category, b.category)
+            np.testing.assert_allclose(np.asarray(a.values), np.asarray(b.values), rtol=0, atol=1e-9)
+            self.assertEqual(set(a.axes.keys()), set(b.axes.keys()))
+            for k in a.axes:
+                np.testing.assert_allclose(np.asarray(a.axes[k]), np.asarray(b.axes[k]), rtol=0, atol=1e-9)
+            self.assertEqual(a.display_name, b.display_name)
+            self.assertEqual(a.unit, b.unit)
+
+            def _nonempty_str_dict(d):
+                return {k: v for k, v in d.items() if str(v).strip() != ""}
+
+            self.assertEqual(_nonempty_str_dict(a.axis_names), _nonempty_str_dict(b.axis_names))
+            self.assertEqual(_nonempty_str_dict(a.axis_units), _nonempty_str_dict(b.axis_units))
 
     def test_invalid_metadata_line_raises(self) -> None:
         p = Path(__file__).resolve().parent / "testdata" / "parameter_formats" / "dcm" / "dcm2_invalid_example.dcm"

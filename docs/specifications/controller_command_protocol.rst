@@ -26,6 +26,16 @@ General Concepts
 
 Interactive hosts (for example ParaWiz console) **SHOULD** surface protocol-level failures—unknown commands, invalid arguments, unresolved references—as a **single human-readable message line** (the controller’s error text), without attaching a full implementation stack trace. Lower-level or unexpected errors may still be logged with diagnostics according to host policy.
 
+Command vocabulary (design)
+---------------------------
+
+The protocol favors a **small set of universal verbs** (for example ``cd``, ``ls``, ``lsattr``, ``get``, ``set``, ``del``).
+Domain-specific behavior should be exposed primarily through **attributes** on model objects, including **virtual**
+attributes (see *Attribute Meta-Properties*): specialized semantics are implemented with getter/setter hooks so
+hosts keep using the same ``get`` / ``set`` forms instead of multiplying ad-hoc command verbs. Separate top-level
+commands are reserved when attribute access is a poor fit (for example ``swap_ds`` across two references) or for
+coarse workflow entry points such as ``load`` and ``import``.
+
 Attribute Meta-Properties
 -------------------------
 
@@ -130,6 +140,14 @@ Top-Level Command Set
      - Load a model from a command stack/script
      - ``load "<scriptPath>" [into=<path>] [idPolicy=remap|keep]``
      - Model elements created/updated; undo/redo stacks cleared
+   * - ``import``
+     - Import calibration parameters from a file into a data set
+     - ``import dcm <DataSetRef> "<filePath>"``
+     - ``MODEL.CAL_PARAM`` nodes created; undo/redo stacks cleared
+   * - ``write``
+     - Export calibration parameters from the **active** parameter data set to a DCM file
+     - ``write "<outputPath>"``
+     - UTF-8 DCM written; does not clear undo/redo stacks
 
 Object Referencing
 ------------------
@@ -235,6 +253,18 @@ FMU-backed elementaries store a subtree under ``fmu.*`` (path, guid, ``variables
 
 These commands are not recorded on the undo stack (same category as a complex external edit).
 
+Parameter data sets (``MODEL.PARAMETER_DATA_SET``)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Each registered parameter data set exposes a virtual integer attribute ``num_params``:
+
+* ``get <dataSetRef>.num_params`` — number of calibration parameters stored in the DuckDB repository for that set.
+* ``set <dataSetRef>.num_params 0`` — removes all ``MODEL.CAL_PARAM`` descendants under the set and deletes the
+  corresponding parameter rows from the repository; the data set **node** and the ``data_sets`` row **remain**.
+  Writes with any value other than ``0`` are rejected (only ``0`` means “clear all parameters in this set”).
+
+With ``cd`` into the data set node, the usual shorthand applies: ``get num_params`` and ``set num_params 0``.
+
 ``set`` Forms
 -------------
 
@@ -258,7 +288,7 @@ Examples::
 Target Resolution
 ~~~~~~~~~~~~~~~~~
 
-- In ``set <path>.<attr> <value>``, the object is resolved from ``<path>`` and ``<attr>`` is updated on that object.
+- In ``set <objectRef>.<attr> <value>``, the object before the first ``.`` is resolved with the same rules as a standalone reference (global stable ``name@<uuid>``, alias path from ``@…``, or path relative to ``current``), then ``<attr>`` is updated on that object.
 - In ``set <attr> <value>``, the current context object is the target.
 - In ``set @selection <attr> <value>``, the update is applied to all selected objects.
 - In ``set -p @selection <attr> <delta>``, the parsed ``<delta>`` must be numeric; it is **added** to the current attribute value on each selected object that exposes a numeric ``<attr>``. Objects that do not support the attribute or a numeric read are **skipped** (they do not count toward the returned update count).
@@ -307,7 +337,7 @@ Examples::
 Target Resolution
 ~~~~~~~~~~~~~~~~~
 
-- In ``get <path>.<attr>``, the object is resolved from ``<path>`` and ``<attr>`` is read from that object.
+- In ``get <objectRef>.<attr>``, the object before the first ``.`` is resolved like a standalone reference (global ``name@<uuid>``, ``@…`` path, or relative path), then ``<attr>`` is read from that object.
 - In ``get <attr>``, the current context object is used as the target.
 - In ``get @selection <attr>``, values are read from each selected object.
 
@@ -508,6 +538,29 @@ Error Behavior
 - Duplicate IDs under ``idPolicy=keep`` cause command failure.
 - In transactional mode, failures must roll back all changes created by ``load``.
 
+``import`` and ``write`` (DCM)
+----------------------------
+
+**Import** — canonical form::
+
+   import dcm <DataSetRef> "<filePath>"
+
+- Resolves ``<DataSetRef>`` to a ``MODEL.PARAMETER_DATA_SET`` node, reads a UTF-8 DCM file, and creates ``MODEL.CAL_PARAM`` children plus repository rows for each supported block (see the parameters / DCM specifications for the supported subset).
+- Relative ``<filePath>`` resolution follows the same rules as other file-opening commands (for example relative to the directory of the script last opened with ``load`` when the path is not absolute).
+- On success, returns the number of imported parameters as a decimal string.
+- A successful ``import`` clears the undo and redo stacks (same class as ``load``).
+
+**Write** — canonical form::
+
+   write "<outputPath>"
+
+- Exports **all** parameters stored in DuckDB for the **active** ``MODEL.PARAMETER_DATA_SET`` (see the parameters runtime ``active_dataset`` / ``active_dataset_name``). The file uses ``KONSERVIERUNG_FORMAT 2.0`` and the same numeric subset as the DCM importer (for example ``FESTWERT``, ``FESTWERTEBLOCK``, ``KENNLINIE``, ``KENNFELD``, ``STUETZSTELLENVERTEILUNG``).
+- Text parameters (for example ASCII category) are **not** emitted as DCM blocks; they appear as comment lines in the output so the file remains parseable.
+- Parent directories for ``<outputPath>`` are created when missing.
+- Relative ``<outputPath>`` is resolved like ``import`` (including relative to the directory of the script last opened with ``load`` when not absolute).
+- On success, returns the number of exported numeric blocks as a decimal string, optionally followed by a short note if text parameters were omitted.
+- ``write`` does **not** clear undo/redo stacks.
+
 Script Execution
 ----------------
 
@@ -583,6 +636,10 @@ A) Command Summary
      - Reconstruction
      - Script path (+ optional target path)
      - Rebuild model/submodel from protocol command stack
+   * - ``import`` / ``write``
+     - Parameters (DCM)
+     - Data set ref + path / active data set + path
+     - Bulk ingest or export of calibration parameters
 
 B) Construction Type Summary
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any, Sequence
+from typing import Any, Sequence, cast
 from uuid import UUID
 
 import numpy as np
@@ -47,6 +47,7 @@ class ParameterRuntime:
                 setter=lambda v: self.set_active_dataset_name(None if v in (None, "", "None") else str(v)),
                 writable=True,
             )
+        self._ensure_num_params_virtual_on_all_datasets()
 
     def parameters_root(self) -> ComplexInstance:
         for c in self.model.root.children:
@@ -95,10 +96,24 @@ class ParameterRuntime:
 
     def _find_dataset_by_name(self, name: str) -> ComplexInstance | None:
         root = self.data_sets_root()
+        matches: list[ComplexInstance] = []
         for c in root.children:
             if isinstance(c, ComplexInstance) and c.name == name:
-                return c
-        return None
+                matches.append(c)
+        if not matches:
+            return None
+        if len(matches) == 1:
+            return matches[0]
+        # Duplicate data set names: the first child wins for iteration order only — that can
+        # pick a stale node without a DuckDB row (e.g. two "parawiz_target" after reload).
+        # Prefer any node registered in the parameters repository.
+        repo = self.repo
+        registered = [m for m in matches if m.id is not None and repo.get_dataset_name(m.id) is not None]
+        if len(registered) == 1:
+            return registered[0]
+        if len(registered) > 1:
+            return registered[0]
+        return matches[0]
 
     def active_dataset(self) -> ComplexInstance | None:
         raw = self._active_dataset_name
@@ -149,6 +164,77 @@ class ParameterRuntime:
         )
         if self._active_dataset_name in (None, "", "None"):
             self._active_dataset_name = node.name
+        self._install_num_params_virtual(node)
+
+    def clear_all_parameters_in_data_set(self, ds_node: ComplexInstance) -> int:
+        """Remove all ``MODEL.CAL_PARAM`` descendants and DuckDB parameter rows; keep the data set row and node.
+
+        Returns the number of parameters removed from the repository.
+        """
+        if not self._is_data_set_node(ds_node) or ds_node.id is None:
+            raise ValueError("clear_all_parameters_in_data_set requires a MODEL.PARAMETER_DATA_SET with id")
+        ds_id = ds_node.id
+        pairs: list[tuple[ComplexInstance, UUID]] = []
+        stack: list[ComplexInstance] = [ds_node]
+        while stack:
+            cur = stack.pop()
+            for child in list(cur.children):
+                if isinstance(child, ComplexInstance):
+                    stack.append(child)
+                    if self._node_type(child) == "MODEL.CAL_PARAM" and child.id is not None:
+                        pairs.append((cur, child.id))
+        if pairs:
+            self.model.delete_many(pairs)
+        return self.repo.delete_parameters_for_data_set(ds_id, remove_data_set_row=False)
+
+    def _ensure_num_params_virtual_on_all_datasets(self) -> None:
+        root = self.data_sets_root()
+        for c in list(root.children):
+            if isinstance(c, ComplexInstance) and self._is_data_set_node(c) and c.id is not None:
+                self._install_num_params_virtual(c)
+
+    def _install_num_params_virtual(self, node: ComplexInstance) -> None:
+        """Virtual ``num_params``: read-only count from DuckDB; write only ``0`` clears parameters (CCP ``set``)."""
+        if not self._is_data_set_node(node) or node.id is None:
+            return
+        if "num_params" in node.attribute_dict:
+            return
+        ds_id = cast(UUID, node.id)
+        rt = self
+
+        def getter() -> int:
+            return rt.repo.count_parameters_for_data_set(ds_id)
+
+        def setter(v: Any) -> None:
+            if isinstance(v, bool):
+                raise ValueError("num_params does not accept boolean values")
+            if isinstance(v, float):
+                if not v.is_integer():
+                    raise ValueError("num_params must be an integer")
+                iv = int(v)
+            elif isinstance(v, int):
+                iv = v
+            else:
+                try:
+                    iv = int(v)
+                except (TypeError, ValueError) as exc:
+                    raise ValueError(
+                        f"num_params expects integer 0 to clear all parameters, got {v!r}"
+                    ) from exc
+            if iv != 0:
+                raise ValueError(
+                    "num_params may only be written as 0 (removes all parameters in this data set; "
+                    "the MODEL.PARAMETER_DATA_SET node and data_sets row are kept)"
+                )
+            rt.clear_all_parameters_in_data_set(node)
+
+        node.attribute_dict.set_virtual(
+            "num_params",
+            getter=getter,
+            setter=setter,
+            exposed=True,
+            writable=True,
+        )
 
     def register_data_container_node(self, node: ComplexInstance) -> None:
         parent = node.parent

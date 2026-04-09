@@ -1,10 +1,12 @@
-"""Minimal DCM (KONSERVIERUNG_FORMAT 2.0) import for ParaWiz and tooling.
+"""Minimal DCM (KONSERVIERUNG_FORMAT 2.0) import/export for ParaWiz and tooling.
 
-Parses the numeric subset used by the test fixtures:
+Parses and serializes the numeric subset used by the test fixtures:
 ``FESTWERT``, ``FESTWERTEBLOCK``, ``KENNLINIE``, ``KENNFELD``, ``STUETZSTELLENVERTEILUNG``.
 Additionally maps common metadata fields:
 ``LANGNAME``, ``EINHEIT``, ``VAR``, ``FUNKTION``, ``LANGNAME_X``, ``LANGNAME_Y``,
 ``EINHEIT_X``, ``EINHEIT_Y``.
+
+Export omits text (ASCII) parameters as ``*`` comment lines so the file stays parseable.
 
 Performance: lines without ``"`` use whitespace tokenization; quoted strings still use :mod:`shlex`.
 Numeric rows use vectorized :class:`numpy.ndarray` parsing where possible; KENNFELD matrices use
@@ -21,7 +23,7 @@ from typing import Any
 
 import numpy as np
 
-from .repository import CalParamImportPrepared
+from .repository import CalParamImportPrepared, ParameterRecord
 
 
 @dataclass(slots=True)
@@ -523,3 +525,242 @@ def import_dcm_for_dataset(
     if import_phase_hook is not None:
         import_phase_hook("complete", n)
     return n
+
+
+def _dcm_double_quoted(s: str) -> str:
+    """DCM-style ``"…"`` string for LANGNAME fields (matches fixtures, avoids POSIX ``shlex`` single quotes)."""
+    return '"' + str(s).replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def _dcm_short_atom(s: str) -> str:
+    s = str(s).strip()
+    if not s:
+        return ""
+    if any(c.isspace() for c in s) or '"' in s:
+        return shlex.quote(s)
+    return s
+
+
+def _dcm_ident(name: str) -> str:
+    if not name:
+        raise ValueError("empty parameter name")
+    if any(c.isspace() for c in name):
+        return shlex.quote(name)
+    return name
+
+
+def _split_var_funk(source_identifier: str) -> tuple[str, str]:
+    var = ""
+    funk = ""
+    for part in str(source_identifier).split(";"):
+        part = part.strip()
+        if part.startswith("VAR="):
+            var = part[4:].strip()
+        elif part.startswith("FUNKTION="):
+            funk = part[9:].strip()
+    return var, funk
+
+
+def _fmt_dcm_float(x: float) -> str:
+    v = float(np.float64(x))
+    s = f"{v:.15g}"
+    if "e" in s.lower() or "E" in s:
+        return s
+    if "." not in s and "inf" not in s.lower() and "nan" not in s.lower():
+        return f"{s}.0"
+    return s
+
+
+def _lines_langname_einheit(rec: ParameterRecord, lines: list[str]) -> None:
+    if rec.display_name.strip():
+        lines.append(f" LANGNAME {_dcm_double_quoted(rec.display_name)}")
+    u = rec.unit.strip()
+    if u:
+        lines.append(f" EINHEIT {_dcm_short_atom(u)}")
+
+
+def _lines_var_funk(rec: ParameterRecord, lines: list[str]) -> None:
+    v, f = _split_var_funk(rec.source_identifier)
+    if v:
+        lines.append(f" VAR {_dcm_short_atom(v)}")
+    if f:
+        lines.append(f" FUNKTION {_dcm_short_atom(f)}")
+
+
+def format_parameter_record_dcm(rec: ParameterRecord) -> str:
+    """Serialize one numeric :class:`ParameterRecord` to a DCM block (subset matching :func:`parse_dcm_specs`)."""
+    if rec.is_text:
+        return f"* Omitted non-DCM text parameter: {_dcm_ident(rec.name)}\n"
+
+    cat = str(rec.category).upper()
+    name = _dcm_ident(rec.name)
+    vals = np.asarray(rec.values, dtype=np.float64)
+    lines: list[str] = []
+
+    if cat == "VALUE":
+        if vals.ndim != 0:
+            raise ValueError(f"VALUE parameter {rec.name!r} must be scalar")
+        w = float(vals.item())
+        lines.append(f"FESTWERT {name}")
+        _lines_langname_einheit(rec, lines)
+        _lines_var_funk(rec, lines)
+        lines.append(f" WERT {_fmt_dcm_float(w)}")
+        lines.append("END")
+        return "\n".join(lines) + "\n"
+
+    if cat == "ARRAY":
+        if vals.ndim != 1:
+            raise ValueError(f"ARRAY parameter {rec.name!r} must be one-dimensional")
+        nx = int(vals.shape[0])
+        lines.append(f"FESTWERTEBLOCK {name} {nx}")
+        _lines_langname_einheit(rec, lines)
+        _lines_var_funk(rec, lines)
+        row = " ".join(_fmt_dcm_float(float(x)) for x in vals.reshape(-1))
+        lines.append(f" WERT {row}")
+        lines.append("END")
+        return "\n".join(lines) + "\n"
+
+    if cat == "MATRIX":
+        if vals.ndim != 2:
+            raise ValueError(f"MATRIX parameter {rec.name!r} must be two-dimensional")
+        nx, ny = int(vals.shape[0]), int(vals.shape[1])
+        lines.append(f"FESTWERTEBLOCK {name} {nx} @ {ny}")
+        _lines_langname_einheit(rec, lines)
+        _lines_var_funk(rec, lines)
+        for yi in range(ny):
+            row = vals[:, yi]
+            lines.append(" WERT " + " ".join(_fmt_dcm_float(float(x)) for x in row))
+        lines.append("END")
+        return "\n".join(lines) + "\n"
+
+    if cat == "CURVE":
+        if vals.ndim != 1:
+            raise ValueError(f"CURVE parameter {rec.name!r} must be one-dimensional")
+        ax0 = rec.axes.get(0)
+        if ax0 is None:
+            raise ValueError(f"CURVE parameter {rec.name!r} missing axis 0")
+        stx = np.asarray(ax0, dtype=np.float64).reshape(-1)
+        nx = int(vals.shape[0])
+        if int(stx.size) != nx:
+            raise ValueError(f"CURVE parameter {rec.name!r} axis length mismatch")
+        lines.append(f"KENNLINIE {name} {nx}")
+        _lines_langname_einheit(rec, lines)
+        nm0 = rec.axis_names.get(0, "").strip()
+        un0 = rec.axis_units.get(0, "").strip()
+        if nm0:
+            lines.append(f" LANGNAME_X {_dcm_double_quoted(nm0)}")
+        if un0:
+            lines.append(f" EINHEIT_X {_dcm_short_atom(un0)}")
+        _lines_var_funk(rec, lines)
+        lines.append(" ST/X " + " ".join(_fmt_dcm_float(float(x)) for x in stx))
+        lines.append(" WERT " + " ".join(_fmt_dcm_float(float(x)) for x in vals.reshape(-1)))
+        lines.append("END")
+        return "\n".join(lines) + "\n"
+
+    if cat == "MAP":
+        if vals.ndim != 2:
+            raise ValueError(f"MAP parameter {rec.name!r} must be two-dimensional")
+        ax0 = rec.axes.get(0)
+        ax1 = rec.axes.get(1)
+        if ax0 is None or ax1 is None:
+            raise ValueError(f"MAP parameter {rec.name!r} missing axes 0/1")
+        stx = np.asarray(ax0, dtype=np.float64).reshape(-1)
+        sty = np.asarray(ax1, dtype=np.float64).reshape(-1)
+        nx, ny = int(vals.shape[0]), int(vals.shape[1])
+        if int(stx.size) != nx or int(sty.size) != ny:
+            raise ValueError(f"MAP parameter {rec.name!r} axis length mismatch")
+        lines.append(f"KENNFELD {name} {nx} {ny}")
+        _lines_langname_einheit(rec, lines)
+        nm0 = rec.axis_names.get(0, "").strip()
+        un0 = rec.axis_units.get(0, "").strip()
+        nm1 = rec.axis_names.get(1, "").strip()
+        un1 = rec.axis_units.get(1, "").strip()
+        if nm0:
+            lines.append(f" LANGNAME_X {_dcm_double_quoted(nm0)}")
+        if un0:
+            lines.append(f" EINHEIT_X {_dcm_short_atom(un0)}")
+        if nm1:
+            lines.append(f" LANGNAME_Y {_dcm_double_quoted(nm1)}")
+        if un1:
+            lines.append(f" EINHEIT_Y {_dcm_short_atom(un1)}")
+        _lines_var_funk(rec, lines)
+        lines.append(" ST/X " + " ".join(_fmt_dcm_float(float(x)) for x in stx))
+        for yi in range(ny):
+            lines.append(f" ST/Y {_fmt_dcm_float(float(sty[yi]))}")
+            row = vals[:, yi]
+            lines.append(" WERT " + " ".join(_fmt_dcm_float(float(x)) for x in row))
+        lines.append("END")
+        return "\n".join(lines) + "\n"
+
+    if cat == "NODE_ARRAY":
+        if vals.ndim != 1:
+            raise ValueError(f"NODE_ARRAY parameter {rec.name!r} must be one-dimensional")
+        nx = int(vals.shape[0])
+        lines.append(f"STUETZSTELLENVERTEILUNG {name} {nx}")
+        _lines_langname_einheit(rec, lines)
+        nm0 = rec.axis_names.get(0, "").strip()
+        un0 = rec.axis_units.get(0, "").strip()
+        if nm0:
+            lines.append(f" LANGNAME_X {_dcm_double_quoted(nm0)}")
+        if un0:
+            lines.append(f" EINHEIT_X {_dcm_short_atom(un0)}")
+        _lines_var_funk(rec, lines)
+        lines.append(" ST/X " + " ".join(_fmt_dcm_float(float(x)) for x in vals.reshape(-1)))
+        lines.append("END")
+        return "\n".join(lines) + "\n"
+
+    raise ValueError(f"Unsupported category for DCM export: {rec.category!r} ({rec.name!r})")
+
+
+def write_dcm_records_to_path(path: Path | str, records: list[ParameterRecord]) -> tuple[int, int]:
+    """Write UTF-8 DCM text. Returns ``(numeric_blocks, skipped_text_count)``."""
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    body: list[str] = []
+    n_num = 0
+    n_skip = 0
+    for rec in records:
+        block = format_parameter_record_dcm(rec)
+        if block.lstrip().startswith("*"):
+            body.append(block.rstrip("\n"))
+            n_skip += 1
+        else:
+            body.append(block.rstrip("\n"))
+            n_num += 1
+    # Blank line between Kenngrößen blocks; header ends with a blank line before the first block.
+    head_txt = "* Written by Synarius\nKONSERVIERUNG_FORMAT 2.0\n\n"
+    if not body:
+        text = head_txt
+    else:
+        text = head_txt + "\n\n".join(body).rstrip() + "\n"
+    p.write_text(text, encoding="utf-8", newline="\n")
+    return n_num, n_skip
+
+
+def write_dcm_for_active_dataset(controller: Any, file_path: str | Path) -> tuple[int, int]:
+    """Export all numeric parameters from the **active** ``MODEL.PARAMETER_DATA_SET`` to a DCM file.
+
+    Text (ASCII) parameters are omitted (comment lines in the output). Returns ``(numeric_blocks, skipped_text)``.
+    """
+    from synarius_core.model.data_model import ComplexInstance
+
+    rt = controller.model.parameter_runtime()
+    ds = rt.active_dataset()
+    if ds is None or not isinstance(ds, ComplexInstance) or ds.id is None:
+        raise ValueError("No active parameter data set; set the active dataset (parameters runtime).")
+    # ``ComplexInstance.get`` raises KeyError when ``type`` is missing (unlike ``dict.get``).
+    # ``ParameterRuntime._is_data_set_node`` mirrors ``_node_type`` (try/except). Fall back to
+    # DuckDB registration so legacy or partially materialized data set nodes still export.
+    repo = rt.repo
+    is_node = rt._is_data_set_node(ds)
+    duck_name = repo.get_dataset_name(ds.id)
+    if not is_node and duck_name is None:
+        raise ValueError("Active context must be a MODEL.PARAMETER_DATA_SET node.")
+
+    pids = repo.list_parameter_ids_for_data_set(ds.id)
+    if not pids:
+        return write_dcm_records_to_path(file_path, [])
+
+    recs_map = repo.get_records_for_ids(pids)
+    ordered = [recs_map[pid] for pid in pids]
+    return write_dcm_records_to_path(file_path, ordered)

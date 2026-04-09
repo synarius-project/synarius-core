@@ -158,6 +158,32 @@ class ParametersModelTest(unittest.TestCase):
         with self.assertRaises(CommandError):
             ctl._resolve_ref(p_h)
 
+    def test_num_params_clear_via_set_keeps_dataset(self) -> None:
+        from uuid import UUID
+
+        ctl = MinimalController()
+        ctl.execute("cd parameters/data_sets")
+        ds_h = (ctl.execute("new DataSet DsNumParams") or "").strip()
+        ds_node = ctl._resolve_ref(ds_h)
+        self.assertIsInstance(ds_node.id, UUID)
+        ds_id = ds_node.id
+        ctl.execute(f"cd {ds_h}")
+        p_h = (ctl.execute("new CalParam Knp category=VALUE") or "").strip()
+        pid = ctl._resolve_ref(p_h).id
+        repo = ctl.model.parameter_runtime().repo
+        ctl.execute("cd ..")
+        n0 = int((ctl.execute(f"get {ds_h}.num_params") or "-1").strip())
+        self.assertEqual(n0, 1)
+        out = (ctl.execute(f"set {ds_h}.num_params 0") or "").strip()
+        self.assertEqual(out, "ok")
+        self.assertEqual(repo.count_parameters_for_data_set(ds_id), 0)
+        self.assertIsNotNone(repo.get_dataset_name(ds_id))
+        ctl._resolve_ref(ds_h)
+        with self.assertRaises(ValueError):
+            repo.get_record(pid)
+        with self.assertRaises(CommandError):
+            ctl.execute(f"set {ds_h}.num_params 2")
+
 
 if __name__ == "__main__":
     unittest.main()

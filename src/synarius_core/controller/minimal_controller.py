@@ -8,7 +8,7 @@ from operator import attrgetter
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import numpy as np
 
@@ -38,6 +38,7 @@ from synarius_core.model.diagram_geometry import instance_source_pin_diagram_xy
 from synarius_core.fmu.bind import FmuBindError, bind_elementary_from_fmu_path, bind_fmu_inspection_to_elementary
 from synarius_core.fmu.inspection import FmuInspectError, inspect_fmu_path
 from synarius_core.parameters.repository import ParameterRecord
+from synarius_core.variable_naming import InvalidVariableNameError
 
 UndoRedoPair = tuple[list[str], list[str]]
 
@@ -121,6 +122,9 @@ class MinimalController:
             self._clear_undo_stacks()
             return out
 
+        if cmd == "write":
+            return self._dispatch_command(cmd, args)
+
         if cmd == "cp":
             out = self._dispatch_command(cmd, args)
             return out
@@ -174,8 +178,12 @@ class MinimalController:
             return self._cmd_load(args)
         if cmd == "import":
             return self._cmd_import(args)
+        if cmd == "write":
+            return self._cmd_write(args)
         if cmd == "cp":
             return self._cmd_cp(args)
+        if cmd == "swap_ds":
+            return self._cmd_swap_ds(args)
 
         raise CommandError(f"Unknown command '{cmd}'.")
 
@@ -263,6 +271,10 @@ class MinimalController:
             return None
         if cmd == "set":
             return self._undo_pair_set(args, raw)
+        if cmd == "swap_ds":
+            if len(args) == 2:
+                return ([raw], [raw])
+            return None
         if cmd == "mv":
             return self._undo_pair_mv(args)
         if cmd == "del":
@@ -411,7 +423,7 @@ class MinimalController:
         _ = self._parse_value(" ".join(args[1:]))
         if "." in target_expr:
             path, attr = self._cli_ref_and_attrpath(target_expr)
-            target = self._resolve_path(path)
+            target = self._resolve_ref(path)
             try:
                 old = self._get_attr(target, attr)
             except CommandError:
@@ -1011,7 +1023,7 @@ class MinimalController:
         value = self._parse_value(" ".join(args[1:]))
         if "." in target_expr:
             path, attr = self._cli_ref_and_attrpath(target_expr)
-            target = self._resolve_path(path)
+            target = self._resolve_ref(path)
             self._set_attr(target, attr, value)
         else:
             self._set_attr(self.current, target_expr, value)
@@ -1085,7 +1097,7 @@ class MinimalController:
         target_expr = args[0]
         if "." in target_expr:
             path, attr = self._cli_ref_and_attrpath(target_expr)
-            target = self._resolve_path(path)
+            target = self._resolve_ref(path)
             return str(self._get_attr(target, attr))
         return str(self._get_attr(self.current, target_expr))
 
@@ -1366,6 +1378,71 @@ class MinimalController:
         rt.ensure_tree()
         rt.repo.copy_cal_param_payload(src.id, dst.id)
         return f"ok {args[1]} -> {args[2]}"
+
+    def _swap_parameter_data_set_model_children(self, ds_a: ComplexInstance, ds_b: ComplexInstance) -> None:
+        ch_a = list(ds_a.children) if ds_a.children else []
+        ch_b = list(ds_b.children) if ds_b.children else []
+        for c in list(ch_a):
+            self.model.reparent(c, ds_b)
+        for c in list(ch_b):
+            self.model.reparent(c, ds_a)
+
+    def _cmd_swap_ds(self, args: list[str]) -> str:
+        if len(args) != 2:
+            raise CommandError("usage: swap_ds <dataSetRefA> <dataSetRefB>")
+        da = self._resolve_ref(args[0])
+        db = self._resolve_ref(args[1])
+        if not isinstance(da, ComplexInstance) or da.id is None:
+            raise CommandError("swap_ds: first ref must resolve to an attached object with id")
+        if not isinstance(db, ComplexInstance) or db.id is None:
+            raise CommandError("swap_ds: second ref must resolve to an attached object with id")
+        if self._node_model_type(da) != "MODEL.PARAMETER_DATA_SET":
+            raise CommandError("swap_ds: first target must be MODEL.PARAMETER_DATA_SET")
+        if self._node_model_type(db) != "MODEL.PARAMETER_DATA_SET":
+            raise CommandError("swap_ds: second target must be MODEL.PARAMETER_DATA_SET")
+        rt = self.model.parameter_runtime()
+        rt.ensure_tree()
+        rt.repo.swap_parameter_data_set_ids(da.id, db.id)
+        self._swap_parameter_data_set_model_children(da, db)
+        self._swap_parameter_data_set_display_metadata(da, db)
+        return "ok"
+
+    def _safe_parameter_data_set_meta_str(self, ds: ComplexInstance, key: str, default: str) -> str:
+        try:
+            return str(ds.get(key))
+        except KeyError:
+            return default
+
+    def _swap_parameter_data_set_display_metadata(self, da: ComplexInstance, db: ComplexInstance) -> None:
+        """Tauscht Quellpfad/Format/Hash und Modellnamen; schreibt ``data_sets`` per Registrierung neu."""
+        rt = self.model.parameter_runtime()
+        for key, dflt in (
+            ("source_path", ""),
+            ("source_format", "unknown"),
+            ("source_hash", ""),
+        ):
+            va = self._safe_parameter_data_set_meta_str(da, key, dflt)
+            vb = self._safe_parameter_data_set_meta_str(db, key, dflt)
+            da.set(key, vb)
+            db.set(key, va)
+        tmp = f"__parawiz_sw_{uuid4().hex}__"
+        na, nb = da.name, db.name
+        da.set_name(tmp)
+        db.set_name(na)
+        da.set_name(nb)
+        row_a = (
+            da.name,
+            self._safe_parameter_data_set_meta_str(da, "source_format", "unknown"),
+            self._safe_parameter_data_set_meta_str(da, "source_path", ""),
+            self._safe_parameter_data_set_meta_str(da, "source_hash", ""),
+        )
+        row_b = (
+            db.name,
+            self._safe_parameter_data_set_meta_str(db, "source_format", "unknown"),
+            self._safe_parameter_data_set_meta_str(db, "source_path", ""),
+            self._safe_parameter_data_set_meta_str(db, "source_hash", ""),
+        )
+        rt.repo.reconcile_swapped_data_set_rows(da.id, row_a, db.id, row_b)
 
     def _iter_cal_params_under(self, node: ComplexInstance) -> list[ComplexInstance]:
         out: list[ComplexInstance] = []
@@ -1698,6 +1775,27 @@ class MinimalController:
             raise CommandError(str(exc)) from exc
         return str(n)
 
+    def _cmd_write(self, args: list[str]) -> str:
+        """``write "<outputPath>"`` — schreibt den aktiven Parametersatz als DCM-Datei (KONSERVIERUNG_FORMAT 2.0)."""
+        if not args:
+            raise CommandError('write requires "<outputPath>".')
+        raw_path = args[0]
+        p = Path(raw_path).expanduser()
+        if not p.is_absolute():
+            base = self.last_loaded_script_path
+            if base is not None:
+                p = (base.parent / raw_path).expanduser()
+        p = p.resolve()
+        from synarius_core.parameters.dcm_io import write_dcm_for_active_dataset
+
+        try:
+            n, skipped_text = write_dcm_for_active_dataset(self, p)
+        except ValueError as exc:
+            raise CommandError(str(exc)) from exc
+        if skipped_text:
+            return f"{n} ({skipped_text} text parameters omitted as comments)"
+        return str(n)
+
     def _cmd_load(self, args: list[str]) -> str:
         if not args:
             raise CommandError('load requires "<scriptPath>".')
@@ -1856,6 +1954,10 @@ class MinimalController:
             return
         except KeyError:
             pass
+        except InvalidVariableNameError:
+            raise
+        except ValueError as exc:
+            raise CommandError(str(exc)) from exc
         if hasattr(obj, attr):
             setattr(obj, attr, value)
             return
