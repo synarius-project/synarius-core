@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ElementDescription id="Div" name="Div">
+  <Description>Binary real division.</Description>
+  <Ports>
+    <Port kind="in" name="in0" type="real"/>
+    <Port kind="in" name="in1" type="real"/>
+    <Port kind="out" name="out" type="real"/>
+  </Ports>
+  <Parameters/>
+  <Behavior>
+    <FMFL file="behavior/div.fmfl"/>
+  </Behavior>
+  <Graphics icon16="resources/icons/div_16.svg"
+            icon32="resources/icons/div_32.svg"
+            icon64="resources/icons/div_64.svg"/>
+</ElementDescription>

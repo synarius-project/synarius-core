@@ -40,6 +40,10 @@ include = ["synarius_core*"]
 "synarius_core" = [
   "plugins/FmuRuntime/pluginDescription.xml",
   "plugins/FmuRuntime/fmu_runtime.py",
+  "standard_library/libraryDescription.xml",
+  "standard_library/components/**/*.xml",
+  "standard_library/components/**/*.fmfl",
+  "standard_library/components/**/*.svg",
 ]
 
 [project.optional-dependencies]

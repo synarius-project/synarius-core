@@ -1,0 +1,7 @@
+fmfl 0.1
+
+init:
+    pass
+
+equations:
+    out = in0 - in1
