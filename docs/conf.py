@@ -1,7 +1,16 @@
 import os
+
 import zerovm_sphinx_theme
 
 project = "synarius-core"
+author = "Synarius Contributors"
+copyright = "2026, Synarius Contributors"
+
+# HTML footer / ``|release|`` substitution. Bump when publishing a new documentation
+# snapshot (e.g. FMF/FMFL spec addendum). Independent of the Python package version
+# in ``pyproject.toml`` until those are unified intentionally.
+version = "0.2"
+release = "0.2.0"
 extensions = ["sphinx_needs", "sphinxcontrib.plantuml"]
 html_theme = "zerovm"
 html_theme_path = [zerovm_sphinx_theme.theme_path]
