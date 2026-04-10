@@ -48,6 +48,9 @@ include = ["synarius_core*"]
 
 [project.optional-dependencies]
 dev = []
+simpy = [
+  "simpy>=4.1",
+]
 fmu = [
   "fmpy>=0.3.0",
 ]

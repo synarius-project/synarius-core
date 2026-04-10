@@ -7,61 +7,47 @@ scalar stays at zero like other generic elementaries.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from synarius_core.model import BasicOperator, BasicOperatorType, ElementaryInstance, Model, Variable
+from synarius_core.model import ElementaryInstance, Model, Variable
 
 from synarius_core.plugins.registry import PluginRegistry, run_plugin_compile_passes
 
 try:
-    from .compiler import (
-        CompiledDataflow,
-        DataflowCompilePass,
-        elementary_has_fmu_path,
-        scalar_ws_read,
-    )
+    from .compiler import CompiledDataflow, DataflowCompilePass
 except ImportError:
     raise
 from .context import SimulationContext
+from .python_step_emit import generate_unrolled_python_step_document
+from .step_exchange import RunStepExchange
 from .stimulation import stimulation_value
+from .unrolled_loader import load_run_equations_from_source
 
 if TYPE_CHECKING:
     pass
 
 
-def _eval_op(op: BasicOperator, a: float, b: float) -> float:
-    if op.operation == BasicOperatorType.PLUS:
-        return a + b
-    if op.operation == BasicOperatorType.MINUS:
-        return a - b
-    if op.operation == BasicOperatorType.MULTIPLY:
-        return a * b
-    if op.operation == BasicOperatorType.DIVIDE:
-        if abs(b) < 1e-15:
-            return float("nan")
-        return a / b
-    return float("nan")
-
-
 class SimpleRunEngine:
     """
-    Fixed-step loop: time advance, stimulation, topological evaluation of variables and
-    :class:`~synarius_core.model.BasicOperator` nodes, and optional FMU stepping.
+    Fixed-step loop: time advance, stimulation, **equations phase** via generated
+    ``run_equations(exchange)`` (same source as Studio's unrolled Python tab), optional FMU hooks.
 
     **Orchestration**
 
     1. ``init`` — compile ``DataflowCompilePass``, plugin compile passes, fill scalar workspace,
+       compile/load unrolled ``run_equations`` from :func:`~python_step_emit.generate_unrolled_python_step_document`,
        then call ``runtime:fmu`` plugin ``init_fmu(ctx)`` if present.
-    2. ``step`` — increment ``ctx.time_s``, apply stimuli, walk ``topo_order``; for each FMU
-       diagram node (non-empty ``fmu.path``) call ``step_fmu(ctx, node_id)``; otherwise evaluate
-       variables/operators as before. Finally write workspace values back to :class:`Variable`
+    2. ``step`` — increment ``ctx.time_s``, apply stimuli, call ``run_equations`` with
+       :class:`~step_exchange.RunStepExchange` (workspace, ``stimmed``, ``fmu_step``, …), then
+       optional legacy FMU ``step(ctx)``. Finally write workspace values back to :class:`Variable`
        instances.
     3. ``reset`` — restore workspace snapshot and ``reset_fmu(ctx)`` when the plugin provides it.
 
     If the plugin only implements ``step(ctx)`` (legacy shape) and not ``step_fmu``, that single
-    ``step`` is invoked once after the topological pass (FMU ordering is then the plugin's
+    ``step`` is invoked once after the equations pass (FMU ordering is then the plugin's
     responsibility).
     """
 
@@ -93,6 +79,7 @@ class SimpleRunEngine:
         # True after ``init_fmu`` ran successfully; ``shutdown_fmu`` only then (avoids spurious
         # shutdown when the registry loads the plugin for the first time).
         self._runtime_fmu_session: bool = False
+        self._run_equations: Callable[[RunStepExchange], None] | None = None
 
     @property
     def context(self) -> SimulationContext:
@@ -117,6 +104,7 @@ class SimpleRunEngine:
         self._initial_snapshot.clear()
         self._sync_ctx_options()
         self._ctx.scalar_workspace = self._workspace
+        self._run_equations = None
         if self._compiled is None:
             return
         for uid, node in self._compiled.node_by_id.items():
@@ -131,6 +119,13 @@ class SimpleRunEngine:
                 # Operators and non-FMU elementaries: scalar slot (FMU outputs are filled by step_fmu).
                 self._workspace[uid] = 0.0
                 self._initial_snapshot[uid] = 0.0
+
+        src = generate_unrolled_python_step_document(
+            self._compiled,
+            dt_s=self._dt_s,
+            diagnostics=tuple(self._ctx.diagnostics),
+        )
+        self._run_equations = load_run_equations_from_source(src)
 
         if self._plugin_registry is not None:
             lp = self._plugin_registry.plugin_for_capability("runtime:fmu")
@@ -165,12 +160,11 @@ class SimpleRunEngine:
         """Advance one step: stimulation, then topological propagation."""
         if ctx is not None:
             self._ctx = ctx
-        if self._compiled is None:
+        if self._compiled is None or self._run_equations is None:
             return
 
         self._ctx.time_s += self._dt_s
         t = self._ctx.time_s
-        incoming = self._compiled.incoming
         stimmed: set[UUID] = set()
         self._sync_ctx_options()
         self._ctx.scalar_workspace = self._workspace
@@ -182,27 +176,15 @@ class SimpleRunEngine:
                     self._workspace[uid] = float(sv)
                     stimmed.add(uid)
 
-        for uid in self._compiled.topo_order:
-            node = self._compiled.node_by_id.get(uid)
-            if node is None:
-                continue
-            if isinstance(node, ElementaryInstance) and elementary_has_fmu_path(node):
-                self._invoke_runtime_fmu_step(uid)
-                continue
-            if isinstance(node, BasicOperator):
-                pins = incoming.get(uid, {})
-                nb = self._compiled.node_by_id
-                a = scalar_ws_read(self._workspace, pins.get("in1"), node_by_id=nb)
-                b = scalar_ws_read(self._workspace, pins.get("in2"), node_by_id=nb)
-                self._workspace[uid] = _eval_op(node, a, b)
-            elif isinstance(node, Variable):
-                if uid in stimmed:
-                    continue
-                pins = incoming.get(uid, {})
-                if "in" in pins:
-                    raw = pins["in"]
-                    _val = scalar_ws_read(self._workspace, raw, node_by_id=self._compiled.node_by_id)
-                    self._workspace[uid] = _val
+        exchange = RunStepExchange(
+            workspace=self._workspace,
+            stimmed=stimmed,
+            time_s=self._ctx.time_s,
+            dt_s=self._dt_s,
+            fmu_step=self._invoke_runtime_fmu_step,
+            simulation_context=self._ctx,
+        )
+        self._run_equations(exchange)
 
         self._maybe_invoke_runtime_fmu_step_legacy()
         self._apply_workspace_to_variables()

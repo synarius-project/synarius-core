@@ -1,18 +1,22 @@
 ..
-   FMF & FMFL v0.1 — overview, principles, interaction, runtime (conceptual), future work.
+   FMF & FMFL — overview (v0.2 addendum + v0.1 baseline), principles, interaction, runtime (conceptual), future work.
 
 ================================================================================
-FMF & FMFL (v0.1)
+FMF & FMFL (v0.2 addendum, v0.1 baseline)
 ================================================================================
 
-:Status: Draft v0.1
+:Status: Draft v0.2 (addendum + v0.1 baseline)
 :Audience: Implementers of Synarius Core, loaders, code generators, and libraries
 
-This section specifies the *Functional Model Format* (FMF) and *Functional Model Language* (FMFL) for Synarius. Detailed normative text is split into the documents below; this page collects scope, principles, cross-cutting interaction, and forward-looking notes.
+This section specifies the *Functional Model Format* (FMF) and *Functional Model Language* (FMFL) for Synarius. **Specification v0.2** adds normative clarification of **roles** (FMF as XML packaging vs FMFL as textual behavioral IR), the **two-stage code generation pipeline** (:doc:`architecture_and_pipeline_v0_2`), and a **minimal execution semantics core** (:doc:`execution_semantics_v0_2`); see :doc:`changelog_v0_2`. **Normative details** for XML layout and FMFL grammar remain in the **v0.1 baseline** documents unless a v0.2 document **supersedes** them (see changelog).
 
 .. toctree::
    :maxdepth: 1
 
+   architecture_and_pipeline_v0_2
+   execution_semantics_v0_2
+   changelog_v0_2
+   normative_summaries_v0_2
    fmf_v0_1
    fmfl_v0_1
    normative_summaries_v0_1
@@ -24,11 +28,11 @@ A. Scope and Positioning
 
 **What is FMF?**
 
-The *Functional Model Format* (FMF) is a file-based packaging and exchange format for *libraries* of functional modeling elements. It organizes metadata, interface descriptions, references to behavioral artifacts, and optional resources (e.g. icons) in a directory tree. FMF is inspired by the *structure* and *metadata discipline* of FMI 3.0 (e.g. clear root manifest, hierarchical resources), but it is **not** an FMI clone: it does not define a C API, binary co-simulation interfaces, or FMI-specific semantics.
+The *Functional Model Format* (FMF) is a file-based packaging and exchange format for *libraries* of functional modeling elements. It organizes metadata, interface descriptions, references to behavioral artifacts, and optional resources (e.g. icons) in a directory tree. **Normatively, FMF uses XML** for manifests and element descriptions (see :doc:`fmf_v0_1`). FMF is inspired by the *structure* and *metadata discipline* of FMI 3.0 (e.g. clear root manifest, hierarchical resources), but it is **not** an FMI clone: it does not define a C API, binary co-simulation interfaces, or FMI-specific semantics.
 
 **What is FMFL?**
 
-The *Functional Model Language* (FMFL) is a **language-neutral**, **textual** intermediate representation (IR) of *behavior*: expressions, equations, and dataflow over **semantic types** (Real, Int, Bool), with **init** and **equations** phases. Its **concrete syntax is Python-like** (indented ``init:`` / ``equations:`` suites, no semicolons) to simplify tooling and the Python-first host path, while semantics remain target-agnostic. A code generation stage may lower a model graph (or library element definitions) into FMFL, then emit target languages (Python, C, Java, etc.).
+The *Functional Model Language* (FMFL) is a **language-neutral**, **textual** intermediate representation (IR) of *behavior*: expressions, equations, and dataflow over **semantic types** (Real, Int, Bool), with **init** and **equations** phases. Its **concrete syntax is Python-like** (indented ``init:`` / ``equations:`` suites, no semicolons) to simplify tooling and the Python-first host path, while semantics remain target-agnostic. **FMFL is not an XML format**; it is **line-oriented text**. A code generation stage lowers a model graph (or library element definitions) into FMFL, then emits target languages (Python, C, Java, etc.); see :doc:`architecture_and_pipeline_v0_2`.
 
 **How they relate**
 
@@ -50,13 +54,13 @@ B. Design Principles
 --------------------------------------------------------------------------------
 
 1. **Language-neutral semantics** — Behavior is expressed in FMFL, not in Python/C/Java inside the normative core.
-2. **Generative pipeline** — Model graph → FMFL → target code is a first-class design path.
-3. **Determinism** — Statement **order in FMFL** defines evaluation order; unassigned numerics read as **zero**; algebraic loops and cycles are **allowed**, with resolution left to authors (see :doc:`fmfl_v0_1`, D.3).
+2. **Generative pipeline** — Model graph → FMFL → target code is a first-class design path (detailed in :doc:`architecture_and_pipeline_v0_2`, v0.2).
+3. **Determinism and evaluation order** — **v0.2** **[NORMATIVE]** rules for dependency-based order, cycle detection, state commit, and determinism are in :doc:`execution_semantics_v0_2`. The v0.1 textual-order rule (:doc:`fmfl_v0_1`, D.3) is **refined** when it conflicts with an explicit dependency graph (:doc:`changelog_v0_2`, M.1.1). Defaults for unassigned numerics are **[IMPLEMENTATION-DEFINED]**; the v0.1 “zero” rule is **provisional** compatibility only (:doc:`execution_semantics_v0_2`, §8).
 4. **File-based, library-oriented** — A library is a directory; discovery starts at ``libraryDescription.xml``.
 5. **FMI-inspired structure, not FMI-bound** — Root manifest, version fields, and resource layout echo FMI ergonomics without importing FMI runtime obligations.
-6. **Separation of structure and runtime** — FMF/FMFL describe *what* an element is and *how* it computes; *how* it is scheduled in a real-time loop or FMU is a host concern (hints only in v0.1).
+6. **Separation of logical model vs runtime** — FMF/FMFL specify **logical** system behavior and the **canonical execution cycle** (:doc:`execution_semantics_v0_2`). **Experimentation**, **pacing** (real-time vs accelerated), and **solver** choice are **[OUT-OF-SCOPE]** for this specification (§1 of :doc:`execution_semantics_v0_2`). Host scheduling hints in XML remain informative only where v0.1 allows.
 
-**Default choices (v0.1)**
+**Default choices (v0.1 baseline)**
 
 * **One manifest per library**: ``libraryDescription.xml`` at the library root identifies the folder as an FMF library (analogous in *role* to a package marker, not to Python import semantics).
 * **Per-element directories** under ``components/<ElementId>/`` keep interface, behavior, and assets co-located and avoid global name clashes in large libraries.
@@ -75,35 +79,41 @@ F. Interaction between FMF and FMFL
 .. _fmf-fmfl-runtime-concept:
 
 --------------------------------------------------------------------------------
-G. Runtime and execution concept (conceptual only)
+G. Runtime and execution concept (conceptual vs v0.2 core)
 --------------------------------------------------------------------------------
 
-**Execution profiles (non-normative v0.1)**
+**Canonical logical semantics (v0.2)** — The **trigger → evaluation → commit** cycle, execution **modes**, dependency **order**, **cycle** rules, **state** commit, **determinism**, and minimal **numeric** shapes are **[NORMATIVE]** in :doc:`execution_semantics_v0_2`.
 
-* *Emulation* — deterministic stepping without real-time guarantees.
-* *Live / real-time* — same semantics, host enforces scheduling and I/O.
-* *FMU via Python* — future package bridges FMFL-generated or wrapped logic; not specified here.
-* *Hosted Python* — Synarius Core runs generated or interpreted FMFL-backed instances in-process.
+**Execution profiles (informative; host / experiment — [OUT-OF-SCOPE] for core spec)**
 
-**Host lifecycle (informative; outside FMFL semantics)**
+* *Emulation*, *live*, *FMU via Python*, *hosted Python* — remain **informative** profiles; **real-time pacing** vs **maximum speed** is **[OUT-OF-SCOPE]** (:doc:`execution_semantics_v0_2`, §1, §3).
+
+**Host lifecycle (informative; binding [OUT-OF-SCOPE] in detail)**
 
 #. *Load* — read FMF, parse FMFL, validate names and behavior profiles.
 #. *Configure* — bind parameters, allocate storage.
-#. *Init phase* — execute FMFL ``init:`` suites once per instance (**no side effects** in v0.1).
-#. *Step* — repeat **equations phase** (FMFL ``equations:``) per evaluation cycle; pure functional w.r.t. instance contract.
-#. *Stop* — release resources; order relative to contributions TBD in later versions.
+#. *Init phase* — execute FMFL ``init:`` suites once per instance (see :doc:`fmfl_v0_1`, D.2).
+#. *Step* — **equations** phase per logical cycle; alignment with :doc:`execution_semantics_v0_2`, §2 and §7.
+#. *Stop* — release resources; **[OUT-OF-SCOPE]** ordering details.
 
-Normative definitions of **init** and **equations** phases are in :doc:`fmfl_v0_1`, D.2.
+Normative definitions of **init** and **equations** *phases* (v0.1) remain in :doc:`fmfl_v0_1`, D.2; **v0.2** adds **commit** discipline and **order** rules as above.
 
 **Library runtime contributions (forward-looking)**
 
 Libraries **MAY** later declare: initializers, services (logging, buses), adapters (Arduino, FMU). v0.1 only reserves XML containers; processors **MAY** ignore unknown sections.
 
 --------------------------------------------------------------------------------
-H. Future extensions (v0.2+)
+H. Future extensions (beyond v0.2 addendum)
 --------------------------------------------------------------------------------
 
-* **State** variables (persistent across steps) and richer collections (arrays, structs, enums) on top of semantic Real/Int/Bool.
+**Addressed as normative clarification in v0.2** (see :doc:`architecture_and_pipeline_v0_2`, :doc:`execution_semantics_v0_2`, :doc:`changelog_v0_2`)
+
+* **Pipeline / IR role** — Two-stage **graph → FMFL → target** pipeline; FMFL as **non-XML** behavioral IR; FMF remains XML for packaging.
+* **Execution semantics core** — Canonical cycle; modes (**scheduled** **[RESERVED]**); dependency **order**; **cycle** detection/classification vs **[IMPLEMENTATION-DEFINED]** resolution; **state** commit; **determinism**; minimal **float** tensor shapes; **[OUT-OF-SCOPE]** runtime/experiment concerns.
+
+**Still forward-looking**
+
+* Richer **state** variables and collections beyond minimal float ranks in §9 of :doc:`execution_semantics_v0_2`.
 * Units and dimensions.
 * Explicit discrete states, events, clocks; continuous dynamics (ODEs).
 * External functions with declared contracts.
