@@ -69,6 +69,16 @@ Implementations **SHOULD** structure full **graph-to-source** compilation as **t
 * **XML** remains appropriate for **FMF** (packaging). **FMFL** remains the **behavioral** IR for lowering from the graph and for **second-stage** generators.
 
 --------------------------------------------------------------------------------
+J.1 Graphical identity vs logical variables (normative clarification)
+--------------------------------------------------------------------------------
+
+**[NORMATIVE]** A **graphical** model **MAY** assign **stable identifiers** to **elements** and **connections** (for editing, diff/merge, and packaging). Those identifiers **SHALL** be treated as **referring to graphical or structural occurrences**, not necessarily to **pairwise distinct** logical variables in the lowered program.
+
+**[NORMATIVE]** **Lowering** from the graph to FMFL (stage 1) **SHALL** define how **ports**, **wires**, and **shared** parameters map to **logical** names and **dependencies**. **Several** graphical instances **MAY** contribute to **one** logical signal or **one** equation block after fusion, fan-in, or library expansion.
+
+**Informative note.** In **Synarius Core** today, the **scalar dataflow** compilation path used for early codegen exercises typically builds an **acyclic** dependency graph and **rejects** directed cycles at compile time; runtime storage is usually aligned **one-to-one** with **nodes** in that lowered graph. That profile **does not** by itself realize **arbitrary** multi-graphical → one-logical fusion or **delayed** cyclic feedback; hosts targeting full :doc:`execution_semantics_v0_2` semantics **SHOULD** document when they rely on such a **restricted** pipeline.
+
+--------------------------------------------------------------------------------
 K. Plugins and generators (cross-reference)
 --------------------------------------------------------------------------------
 

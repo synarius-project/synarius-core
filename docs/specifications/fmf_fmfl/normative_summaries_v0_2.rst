@@ -40,6 +40,7 @@ Evaluation order **[NORMATIVE]** / **[TOOL-DEFINED]**
 ------------------------------------------------------
 
 * **[NORMATIVE]** Order **SHALL** follow **dependency graph**; acyclic → topological order.
+* **[NORMATIVE]** The dependency graph is **logical** after lowering; **graphical** IDs (UUIDs, canvas instances) **SHALL NOT** alone determine distinct logical variables; **multiple** graphical elements **MAY** map to one logical signal **when** lowering defines that.
 * **[NORMATIVE]** FMF **MAY** set explicit priority; **MUST NOT** violate dependencies; else reject/correct.
 * **[TOOL-DEFINED]** Editor/canvas layout **MUST NOT** define semantics.
 
@@ -47,6 +48,7 @@ Cycles **[NORMATIVE]** / **[IMPLEMENTATION-DEFINED]**
 -------------------------------------------------------
 
 * **[NORMATIVE]** Detection **required**; classification **SHALL** distinguish **acyclic** vs **cyclic**; **MUST NOT** be silent.
+* **[NORMATIVE]** **Delayed** feedback in discrete-time commit semantics: **old** at cycle **input** (read prior commit), **new** after **commit** for the **next** step — see :doc:`execution_semantics_v0_2`, §5.
 * **[IMPLEMENTATION-DEFINED]** Further cycle classes (e.g. algebraic vs delayed) **MAY** be documented per backend.
 * **[IMPLEMENTATION-DEFINED]** Resolution strategy **MUST** be **documented**; backends **MAY** differ **if** exposed (warnings/metadata).
 

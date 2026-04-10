@@ -92,6 +92,8 @@ Throughout this document, bracketed labels classify requirements:
 
 **[NORMATIVE]** Evaluation order **SHALL** be **derived from the dependency graph** implied by the model (ports, assignments, and dataflow), not from canvas or editor **layout**.
 
+**[NORMATIVE]** That dependency graph is a graph of **logical** data dependencies **after** any host lowering from a **graphical** model to FMFL (or equivalent). **Graphical** element identifiers (e.g. canvas instance IDs, UUIDs in packaging metadata, or host-specific handles) **identify** **graphical** or **structural** occurrences; they **SHALL NOT** by themselves define **distinctness** of **logical** variables. **Multiple** graphical occurrences **MAY** map to the **same** logical name, port bundle, or merged wire in the lowered IR **when** the host’s mapping rules say so.
+
 **[NORMATIVE]** **Acyclic** dependency graphs **SHALL** be evaluated in a **topological order** consistent with all edges.
 
 **[NORMATIVE]** **Cycles** **MUST** be **detected** and **classified** (§5). **Silent** ignoring of cycles **MUST NOT** occur.
@@ -116,6 +118,8 @@ Throughout this document, bracketed labels classify requirements:
 **[IMPLEMENTATION-DEFINED]** **Further** classification (e.g. algebraic vs delayed feedback) **MAY** be provided; where present, it **MUST** be **documented** for the backend.
 
 **[IMPLEMENTATION-DEFINED]** **Cycle resolution** (fixed-point iteration, tearing, rejection): strategy **MUST** be **documented** for each backend; **MUST NOT** be **silent**.
+
+**[NORMATIVE]** **Discrete-time** execution with **explicit** per-step **commit** (§6) implies the following **feedback discipline** for **delayed** (non-algebraic) cycles: **inputs** that **close** a cycle **SHALL** observe **committed** values from the **previous** step (equivalently: **old** value at the **input** of the feedback arc for the current step’s evaluation), and **outputs** produced in that evaluation **SHALL** become **visible** to **downstream** consumers only **after** **commit** (**new** value at the **output** side for the **next** step). This matches microcontroller and fixed-step **delay** practice and is **consistent** with §6; it **SHALL NOT** be conflated with **algebraic** simultaneous equality unless the backend **documents** an algebraic solver.
 
 **[NORMATIVE]** Different backends **MAY** resolve the same cycle differently; differences **MUST** be **exposed** (e.g. **warnings**, **metadata**, or **report** fields). **Silent** divergence **MUST NOT** occur.
 
