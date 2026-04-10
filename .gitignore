@@ -128,3 +128,4 @@ Lib/
 *.key
 *.pem
 *.secret
+tests/testdata/parameter_formats/dcm/test.dcm
