@@ -76,7 +76,17 @@ J.1 Graphical identity vs logical variables (normative clarification)
 
 **[NORMATIVE]** **Lowering** from the graph to FMFL (stage 1) **SHALL** define how **ports**, **wires**, and **shared** parameters map to **logical** names and **dependencies**. **Several** graphical instances **MAY** contribute to **one** logical signal or **one** equation block after fusion, fan-in, or library expansion.
 
-**Informative note.** In **Synarius Core** today, the **scalar dataflow** compilation path used for early codegen exercises typically builds an **acyclic** dependency graph and **rejects** directed cycles at compile time; runtime storage is usually aligned **one-to-one** with **nodes** in that lowered graph. That profile **does not** by itself realize **arbitrary** multi-graphical → one-logical fusion or **delayed** cyclic feedback; hosts targeting full :doc:`execution_semantics_v0_2` semantics **SHOULD** document when they rely on such a **restricted** pipeline.
+**Informative (Synarius Core scalar dataflow).** The **dataflow** compile pass in ``synarius_core.dataflow_sim`` (``CompiledDataflow``) implements:
+
+* **Delayed feedback** — directed cycles among **non-FMU** diagram nodes are accepted. The compiler computes a **minimal** set of **feedback edges** (removed from the DAG used for evaluation order) and treats each as a **one-step delay**: the source is read from the **workspace snapshot at step start** (``RunStepExchange.workspace_previous``), consistent with :doc:`execution_semantics_v0_2` §5–§6.
+* **FMU on a cycle** — if an FMU diagram block lies on a directed cycle, compilation **fails** (no ``CompiledDataflow``); delayed feedback for FMUs is not implemented yet.
+* **Logical fusion** — optional attribute ``dataflow.scalar_slot_id`` on a diagram node (UUID string of another node’s id) maps several instances to **one** scalar workspace slot; FMU blocks **must not** use slot fusion.
+
+--------------------------------------------------------------------------------
+J.2 Delay policy (Synarius Core implementation)
+--------------------------------------------------------------------------------
+
+**Informative.** Until a dedicated **Delay** block or per-connector delay metadata exists in the diagram model, the compiler **infers** unit delay on feedback arcs (greedy cycle breaking). **Algebraic** cycles (simultaneous equations without delay) are **not** simulated; they become **delayed** by construction. A future normative option is an **explicit** delay element so users control which arc carries the register.
 
 --------------------------------------------------------------------------------
 K. Plugins and generators (cross-reference)

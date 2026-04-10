@@ -61,7 +61,7 @@ class CodegenKernelTest(unittest.TestCase):
         self.assertIn("ws[", py)
         self.assertIn(" + ", py)
 
-    def test_cycle_emits_classification_and_raises_stub(self) -> None:
+    def test_cycle_resolves_with_delayed_feedback_codegen(self) -> None:
         model = Model.new("main")
         a = Variable(name="a", type_key="t", value=0.0)
         b = Variable(name="b", type_key="t", value=0.0)
@@ -94,12 +94,17 @@ class CodegenKernelTest(unittest.TestCase):
         )
         ctx = SimulationContext(model=model)
         DataflowCompilePass().run(ctx)
-        self.assertIsNone(ctx.artifacts.get("dataflow"))
-        fmfl = generate_fmfl_document(None, dt_s=0.1, diagnostics=tuple(ctx.diagnostics))
-        py = generate_unrolled_python_step_document(None, dt_s=0.1, diagnostics=tuple(ctx.diagnostics))
-        self.assertIn("cyclic", fmfl.lower())
-        self.assertIn("RuntimeError", py)
-        self.assertIn("cycle", py.lower())
+        compiled = ctx.artifacts.get("dataflow")
+        self.assertIsNotNone(compiled)
+        assert compiled is not None
+        self.assertTrue(compiled.feedback_edges)
+        fmfl = generate_fmfl_document(compiled, dt_s=0.1, diagnostics=tuple(ctx.diagnostics))
+        py = generate_unrolled_python_step_document(compiled, dt_s=0.1, diagnostics=tuple(ctx.diagnostics))
+        self.assertIn("equations:", fmfl)
+        self.assertIn("prev(", fmfl)
+        self.assertIn("def run_equations", py)
+        self.assertIn("workspace_previous", py)
+        self.assertNotIn("raise RuntimeError('invalid dataflow (cycle)')", py)
 
 
 if __name__ == "__main__":

@@ -6,7 +6,7 @@ Stimulation and copying results to diagram variables are handled by :class:`~.en
 
 from __future__ import annotations
 
-from collections.abc import Callable, MutableMapping
+from collections.abc import Callable, Mapping, MutableMapping
 from dataclasses import dataclass
 from typing import Any, AbstractSet
 from uuid import UUID
@@ -18,6 +18,8 @@ class RunStepExchange:
 
     * ``workspace`` — same mapping as :attr:`~synarius_core.dataflow_sim.context.SimulationContext.scalar_workspace`
       (``UUID`` scalars; FMU outputs may use ``(UUID, pin_name)`` keys per :func:`~.compiler.scalar_ws_read`).
+    * ``workspace_previous`` — snapshot of ``workspace`` at **step start** (before stimulation) for
+      **delayed feedback** edges; unused when the graph is acyclic. Same keying as ``workspace``.
     * ``stimmed`` — variable instance ids that already received a stimulation value this step; generated
       code skips overwriting those slots (matches :func:`~synarius_core.dataflow_sim.scalar_equations.apply_scalar_equations_topo`).
     * ``fmu_step`` — optional callback for FMU diagram nodes (same role as the engine's ``step_fmu`` hook).
@@ -28,5 +30,6 @@ class RunStepExchange:
     stimmed: AbstractSet[UUID]
     time_s: float = 0.0
     dt_s: float = 0.02
+    workspace_previous: Mapping[object, float] | None = None
     fmu_step: Callable[[UUID], None] | None = None
     simulation_context: Any | None = None

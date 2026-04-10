@@ -75,6 +75,8 @@ def _collect_equation_lines(compiled: CompiledDataflow) -> tuple[list[tuple[str,
     for ev in iter_equation_items(compiled):
         if isinstance(ev, EqVarWire):
             rhs = _src_expr(nb, ev.src_id, ev.src_pin)
+            if ev.read_src_from_previous:
+                rhs = f"prev({rhs})"
             lines.append(_EquationLine(f"  {ev.target_label} = {rhs}"))
         elif isinstance(ev, EqVarNoInput):
             lines.append(
@@ -87,6 +89,10 @@ def _collect_equation_lines(compiled: CompiledDataflow) -> tuple[list[tuple[str,
             b_id, b_pin = unpack_wire_ref(ev.in2)
             a = _src_expr(nb, a_id, a_pin)
             b = _src_expr(nb, b_id, b_pin)
+            if ev.in1_from_previous:
+                a = f"prev({a})"
+            if ev.in2_from_previous:
+                b = f"prev({b})"
             sym = _op_symbol(ev.op)
             lines.append(_EquationLine(f"  {ev.target_label} = {a} {sym} {b}"))
         elif isinstance(ev, EqFmu):

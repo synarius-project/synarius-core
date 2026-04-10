@@ -27,7 +27,7 @@ class EngineUnrolledRuntimeTest(unittest.TestCase):
         self.assertIsNotNone(eng.context.artifacts.get("dataflow"))
         self.assertIsNotNone(eng._run_equations)
 
-    def test_run_equations_none_when_cycle(self) -> None:
+    def test_run_equations_loaded_when_cycle_delayed_feedback(self) -> None:
         model = Model.new("main")
         x = Variable(name="x", type_key="t", value=0.0)
         y = Variable(name="y", type_key="t", value=0.0)
@@ -60,8 +60,11 @@ class EngineUnrolledRuntimeTest(unittest.TestCase):
         )
         eng = SimpleRunEngine(model)
         eng.init()
-        self.assertIsNone(eng.context.artifacts.get("dataflow"))
-        self.assertIsNone(eng._run_equations)
+        df = eng.context.artifacts.get("dataflow")
+        self.assertIsNotNone(df)
+        self.assertIsNotNone(eng._run_equations)
+        assert df is not None
+        self.assertTrue(df.feedback_edges)
 
     def test_step_runs_unrolled_add(self) -> None:
         model = Model.new("main")

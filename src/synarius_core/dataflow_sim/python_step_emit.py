@@ -37,21 +37,38 @@ def _nid(uid: UUID) -> str:
     return "N_" + uid.hex
 
 
-def _read_operand_expr(ws: str, src_id: UUID, src_pin: str, nb: dict[UUID, ElementaryInstance], names: dict[UUID, str]) -> str:
+def _read_operand_expr(
+    ws: str,
+    ws_prev: str | None,
+    src_id: UUID,
+    src_pin: str,
+    nb: dict[UUID, ElementaryInstance],
+    names: dict[UUID, str],
+    workspace_key_uid: dict[UUID, UUID],
+    use_previous: bool,
+) -> str:
+    """Read operand from ``ws`` or ``ws_prev`` (committed previous step) for delayed feedback."""
     src = nb.get(src_id)
-    key = names[src_id]
+    slot = workspace_key_uid.get(src_id, src_id)
+    key_scalar = names[slot]
+    bucket = ws_prev if (use_previous and ws_prev is not None) else ws
     if isinstance(src, ElementaryInstance) and elementary_has_fmu_path(src):
-        return f"float({ws}.get(({key}, {src_pin!r}), 0.0))"
-    return f"float({ws}.get({key}, 0.0))"
+        key_fmu = names[src_id]
+        return f"float({bucket}.get(({key_fmu}, {src_pin!r}), 0.0))"
+    return f"float({bucket}.get({key_scalar}, 0.0))"
 
 
 def _emit_operator_assign(
     ws: str,
+    ws_prev: str | None,
     op: BasicOperator,
     uid: UUID,
     pins: dict,
     nb: dict[UUID, ElementaryInstance],
     names: dict[UUID, str],
+    workspace_key_uid: dict[UUID, UUID],
+    in1_prev: bool,
+    in2_prev: bool,
     tmp_i: list[int],
 ) -> list[str]:
     w1, w2 = pins.get("in1"), pins.get("in2")
@@ -59,9 +76,10 @@ def _emit_operator_assign(
         return [f"    # operator {names[uid]}: incomplete inputs"]
     a_id, a_pin = unpack_wire_ref(w1)
     b_id, b_pin = unpack_wire_ref(w2)
-    ra = _read_operand_expr(ws, a_id, a_pin, nb, names)
-    rb = _read_operand_expr(ws, b_id, b_pin, nb, names)
-    nk = names[uid]
+    ra = _read_operand_expr(ws, ws_prev, a_id, a_pin, nb, names, workspace_key_uid, in1_prev)
+    rb = _read_operand_expr(ws, ws_prev, b_id, b_pin, nb, names, workspace_key_uid, in2_prev)
+    slot = workspace_key_uid.get(uid, uid)
+    nk = names[slot]
     if op.operation == BasicOperatorType.PLUS:
         return [f"    {ws}[{nk}] = {ra} + {rb}"]
     if op.operation == BasicOperatorType.MINUS:
@@ -92,6 +110,7 @@ def generate_unrolled_python_step_document(
 
     nb = compiled.node_by_id
     names = {uid: _nid(uid) for uid in nb}
+    wk_map = compiled.workspace_key_uid or {}
 
     const_lines: list[str] = [
         '"""Unrolled scalar equations for one step (host applies stimulation before this runs)."""',
@@ -110,6 +129,7 @@ def generate_unrolled_python_step_document(
     for uid, node in sorted(nb.items(), key=lambda x: (_label(x[1]), str(x[0]))):
         const_lines.append(f"{names[uid]} = UUID({str(uid)!r})  # {_label(node)}")
 
+    needs_prev = bool(compiled.feedback_edges)
     body: list[str] = [
         "",
         "",
@@ -117,9 +137,18 @@ def generate_unrolled_python_step_document(
         '    """One equations pass: same order as apply_scalar_equations_topo."""',
         "    ws = exchange.workspace",
         "    stimmed = exchange.stimmed",
-        "",
     ]
+    if needs_prev:
+        body.extend(
+            [
+                "    w_prev = exchange.workspace_previous",
+                "    if w_prev is None:",
+                "        raise RuntimeError('workspace_previous is required when the graph has delayed feedback edges')",
+            ]
+        )
+    body.append("")
     tmp_i = [0]
+    ws_prev_arg: str | None = "w_prev" if needs_prev else None
 
     for ev in iter_equation_items(compiled):
         if isinstance(ev, EqFmu):
@@ -130,7 +159,21 @@ def generate_unrolled_python_step_document(
             continue
         if isinstance(ev, EqOperator):
             pins = compiled.incoming.get(ev.target_uid, {})
-            body.extend(_emit_operator_assign("ws", ev.op, ev.target_uid, pins, nb, names, tmp_i))
+            body.extend(
+                _emit_operator_assign(
+                    "ws",
+                    ws_prev_arg,
+                    ev.op,
+                    ev.target_uid,
+                    pins,
+                    nb,
+                    names,
+                    wk_map,
+                    ev.in1_from_previous,
+                    ev.in2_from_previous,
+                    tmp_i,
+                )
+            )
             body.append("")
             continue
         if isinstance(ev, EqOperatorIncomplete):
@@ -142,10 +185,20 @@ def generate_unrolled_python_step_document(
             body.append("")
             continue
         if isinstance(ev, EqVarWire):
-            rhs = _read_operand_expr("ws", ev.src_id, ev.src_pin, nb, names)
-            u = names[ev.target_uid]
-            body.append(f"    if {u} not in stimmed:")
-            body.append(f"        ws[{u}] = {rhs}")
+            rhs = _read_operand_expr(
+                "ws",
+                ws_prev_arg,
+                ev.src_id,
+                ev.src_pin,
+                nb,
+                names,
+                wk_map,
+                ev.read_src_from_previous,
+            )
+            diagram_id = names[ev.target_uid]
+            slot_key = names[wk_map.get(ev.target_uid, ev.target_uid)]
+            body.append(f"    if {diagram_id} not in stimmed:")
+            body.append(f"        ws[{slot_key}] = {rhs}")
             body.append("")
             continue
         if isinstance(ev, EqGeneric):

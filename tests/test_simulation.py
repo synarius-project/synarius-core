@@ -370,9 +370,11 @@ class SimulationEngineTest(unittest.TestCase):
         model.attach(e2, parent=model.root, reserve_existing=False, remap_ids=False)
         ctx = SimulationContext(model=model)
         DataflowCompilePass().run(ctx)
-        self.assertIsNone(ctx.artifacts.get("dataflow"))
-        self.assertIsNone(ctx.artifacts.get("fmu_diagram"))
-        self.assertTrue(any("cycle" in m.lower() for m in ctx.diagnostics))
+        self.assertIsNotNone(ctx.artifacts.get("dataflow"))
+        df = ctx.artifacts.get("dataflow")
+        assert df is not None
+        self.assertTrue(df.feedback_edges)
+        self.assertTrue(any("delayed feedback" in m.lower() or "cycle" in m.lower() for m in ctx.diagnostics))
 
     def test_init_shutdowns_runtime_fmu_before_each_rebuild(self) -> None:
         with tempfile.TemporaryDirectory() as td:

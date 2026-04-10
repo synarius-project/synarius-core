@@ -8,7 +8,11 @@ from uuid import UUID
 
 from synarius_core.model import BasicOperator, ElementaryInstance, Variable
 
-from .compiler import CompiledDataflow, elementary_has_fmu_path, unpack_wire_ref
+from .compiler import CompiledDataflow, FeedbackWire, elementary_has_fmu_path, unpack_wire_ref
+
+
+def _is_feedback(compiled: CompiledDataflow, wire: FeedbackWire) -> bool:
+    return wire in compiled.feedback_edges
 
 
 def label(node: ElementaryInstance) -> str:
@@ -30,6 +34,7 @@ class EqVarWire:
     target_label: str
     src_id: UUID
     src_pin: str
+    read_src_from_previous: bool
 
 
 @dataclass(frozen=True)
@@ -45,6 +50,8 @@ class EqOperator:
     op: BasicOperator
     in1: object
     in2: object
+    in1_from_previous: bool
+    in2_from_previous: bool
 
 
 @dataclass(frozen=True)
@@ -95,7 +102,14 @@ def iter_equation_items(compiled: CompiledDataflow) -> Iterator[EquationItem]:
             if "in" in pins:
                 raw = pins["in"]
                 sid, sp = unpack_wire_ref(raw)
-                yield EqVarWire(target_uid=uid, target_label=label(node), src_id=sid, src_pin=sp)
+                fb = _is_feedback(compiled, (sid, uid, "in"))
+                yield EqVarWire(
+                    target_uid=uid,
+                    target_label=label(node),
+                    src_id=sid,
+                    src_pin=sp,
+                    read_src_from_previous=fb,
+                )
             else:
                 yield EqVarNoInput(target_uid=uid, target_label=label(node))
         elif isinstance(node, BasicOperator):
@@ -105,7 +119,17 @@ def iter_equation_items(compiled: CompiledDataflow) -> Iterator[EquationItem]:
             if w1 is None or w2 is None:
                 yield EqOperatorIncomplete(target_uid=uid, target_label=nm)
             else:
-                yield EqOperator(target_uid=uid, target_label=nm, op=node, in1=w1, in2=w2)
+                a_id, a_pin = unpack_wire_ref(w1)
+                b_id, b_pin = unpack_wire_ref(w2)
+                yield EqOperator(
+                    target_uid=uid,
+                    target_label=nm,
+                    op=node,
+                    in1=w1,
+                    in2=w2,
+                    in1_from_previous=_is_feedback(compiled, (a_id, uid, "in1")),
+                    in2_from_previous=_is_feedback(compiled, (b_id, uid, "in2")),
+                )
         elif isinstance(node, ElementaryInstance) and elementary_has_fmu_path(node):
             yield EqFmu(target_uid=uid, target_label=label(node))
         else:

@@ -2,9 +2,14 @@
 
 After :class:`DataflowCompilePass`, ``ctx.artifacts`` contains:
 
-* ``dataflow`` — :class:`CompiledDataflow` (or ``None`` if the graph has a cycle).
+* ``dataflow`` — :class:`CompiledDataflow`, or ``None`` if compilation failed (e.g. FMU on a
+  directed cycle, or invalid ``dataflow.scalar_slot_id`` on an FMU block).
 * ``fmu_diagram`` — :class:`CompiledFmuDiagram` with FMU node ids when the graph is valid,
-  else ``None`` (cycle). For a valid graph without FMU blocks, ``fmu_node_ids`` is empty.
+  else ``None``. For a valid graph without FMU blocks, ``fmu_node_ids`` is empty.
+
+  Directed cycles among **non-FMU** nodes are accepted: the compiler inserts **unit-delay
+  feedback** on a minimal edge set so the remainder is acyclic; see :class:`CompiledDataflow`
+  ``feedback_edges`` and ``RunStepExchange.workspace_previous``.
 
 FMU-specific wiring checks are appended to ``ctx.diagnostics`` (unconnected pins, optional
 ``fmu.variables`` causality vs connector direction, simple pin ``data_type`` compatibility).

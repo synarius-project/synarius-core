@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from collections import defaultdict, deque
-from dataclasses import dataclass
+import heapq
+from collections import defaultdict
+from dataclasses import dataclass, field
 from typing import Any, TYPE_CHECKING
 from uuid import UUID
 
@@ -17,6 +18,9 @@ if TYPE_CHECKING:
 
 # Compiled edge: target pin wired from (source instance id, source output pin name).
 WireRef = tuple[UUID, str]
+
+# Directed dataflow edge for cycle analysis / delayed feedback (src -> dst.target_pin).
+FeedbackWire = tuple[UUID, UUID, str]
 
 
 def unpack_wire_ref(raw: object) -> tuple[UUID, str]:
@@ -54,6 +58,10 @@ class CompiledDataflow:
     node_by_id: dict[UUID, ElementaryInstance]
     """target_block_id -> target_pin -> (source_block_id, source_pin)"""
     incoming: dict[UUID, dict[str, WireRef]]
+    """Edges whose source is read from the **previous** committed workspace (unit delay)."""
+    feedback_edges: frozenset[FeedbackWire] = field(default_factory=frozenset)
+    """Maps each diagram instance id to the UUID key used in ``scalar_workspace`` (identity = default)."""
+    workspace_key_uid: dict[UUID, UUID] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -155,6 +163,193 @@ def _dtypes_compatible_for_edge(src_t: str, dst_t: str) -> bool:
     if dst_t == "float" and src_t in ("int", "bool"):
         return True
     return False
+
+
+def _tarjan_scc(node_ids: list[UUID], adj: dict[UUID, set[UUID]]) -> list[list[UUID]]:
+    """Return list of SCCs (each a list of node ids)."""
+    index = 0
+    stack: list[UUID] = []
+    on_stack: set[UUID] = set()
+    indices: dict[UUID, int] = {}
+    lowlink: dict[UUID, int] = {}
+    sccs: list[list[UUID]] = []
+
+    def strongconnect(v: UUID) -> None:
+        nonlocal index
+        indices[v] = index
+        lowlink[v] = index
+        index += 1
+        stack.append(v)
+        on_stack.add(v)
+        for w in sorted(adj.get(v, ()), key=str):
+            if w not in indices:
+                strongconnect(w)
+                lowlink[v] = min(lowlink[v], lowlink[w])
+            elif w in on_stack:
+                lowlink[v] = min(lowlink[v], indices[w])
+        if lowlink[v] == indices[v]:
+            comp: list[UUID] = []
+            while True:
+                w = stack.pop()
+                on_stack.discard(w)
+                comp.append(w)
+                if w == v:
+                    break
+            sccs.append(comp)
+
+    for v in sorted(node_ids, key=str):
+        if v not in indices:
+            strongconnect(v)
+    return sccs
+
+
+def _fmu_in_feedback_cycle(
+    edge_list: list[FeedbackWire],
+    node_ids: list[UUID],
+    fmu_ids: frozenset[UUID],
+) -> bool:
+    """True if an FMU diagram node lies on a directed cycle (SCC size > 1 or self-loop)."""
+    if not fmu_ids:
+        return False
+    adj: dict[UUID, set[UUID]] = defaultdict(set)
+    for s, d, _ in edge_list:
+        adj[s].add(d)
+    for comp in _tarjan_scc(node_ids, adj):
+        cset = set(comp)
+        if len(cset) == 1:
+            u = comp[0]
+            if u not in fmu_ids:
+                continue
+            if any(s == u and d == u for s, d, _ in edge_list):
+                return True
+        else:
+            if fmu_ids & cset:
+                return True
+    return False
+
+
+def _find_one_edge_on_cycle(edge_list: list[FeedbackWire]) -> FeedbackWire | None:
+    """Return one directed edge that lies on a cycle, or ``None`` if ``edge_list`` is acyclic."""
+    if not edge_list:
+        return None
+    adj: dict[UUID, list[FeedbackWire]] = defaultdict(list)
+    verts: set[UUID] = set()
+    for e in edge_list:
+        s, d, _ = e
+        verts.add(s)
+        verts.add(d)
+        adj[s].append(e)
+    UNSEEN, VIS, DONE = 0, 1, 2
+    state: dict[UUID, int] = {v: UNSEEN for v in verts}
+    result: FeedbackWire | None = None
+
+    def dfs(u: UUID) -> bool:
+        nonlocal result
+        state[u] = VIS
+        for e in adj[u]:
+            _, v, _ = e
+            sv = state.get(v, UNSEEN)
+            if sv == UNSEEN:
+                if dfs(v):
+                    return True
+            elif sv == VIS:
+                result = e
+                return True
+        state[u] = DONE
+        return False
+
+    for v in sorted(verts, key=str):
+        if state.get(v, UNSEEN) == UNSEEN:
+            if dfs(v):
+                break
+    return result
+
+
+def _kahn_toposort(edge_list: list[FeedbackWire], node_ids: list[UUID]) -> tuple[list[UUID], bool]:
+    """Topological order of ``node_ids`` using only ``edge_list``; ``ok`` is True iff the graph is a DAG."""
+    ids_set = set(node_ids)
+    in_deg = {n: 0 for n in node_ids}
+    out_edges: dict[UUID, list[FeedbackWire]] = defaultdict(list)
+    for e in edge_list:
+        s, d, _ = e
+        if s in ids_set and d in ids_set:
+            out_edges[s].append(e)
+            in_deg[d] += 1
+    heap = [(str(n), n) for n in node_ids if in_deg[n] == 0]
+    heapq.heapify(heap)
+    topo: list[UUID] = []
+    while heap:
+        _, u = heapq.heappop(heap)
+        topo.append(u)
+        for e in out_edges[u]:
+            _, v, _ = e
+            in_deg[v] -= 1
+            if in_deg[v] == 0:
+                heapq.heappush(heap, (str(v), v))
+    return topo, len(topo) == len(node_ids)
+
+
+def _minimal_feedback_arc_set(
+    edge_list: list[FeedbackWire], node_ids: list[UUID]
+) -> tuple[list[FeedbackWire], list[FeedbackWire]]:
+    """Split edges into (feedback_arcs, dag_edges). Feedback arcs get unit-delay reads."""
+    working = list(edge_list)
+    feedback: list[FeedbackWire] = []
+    while True:
+        _, ok = _kahn_toposort(working, node_ids)
+        if ok:
+            return feedback, working
+        e = _find_one_edge_on_cycle(working)
+        if e is None:
+            return feedback, working
+        feedback.append(e)
+        working.remove(e)
+
+
+def _workspace_key_uid_map(
+    node_by_id: dict[UUID, ElementaryInstance],
+    diagnostics: list[str],
+) -> dict[UUID, UUID]:
+    """Optional ``dataflow.scalar_slot_id`` merges multiple diagram nodes into one workspace UUID key."""
+    out: dict[UUID, UUID] = {}
+    for uid, node in node_by_id.items():
+        key = uid
+        try:
+            raw = node.get("dataflow.scalar_slot_id")
+        except (KeyError, TypeError, ValueError):
+            raw = None
+        if raw is not None and str(raw).strip() != "":
+            try:
+                peer = UUID(str(raw).strip())
+            except ValueError:
+                diagnostics.append(f"Invalid dataflow.scalar_slot_id on diagram node {node.name!r}; using own id.")
+            else:
+                if peer not in node_by_id:
+                    diagnostics.append(
+                        f"dataflow.scalar_slot_id {peer} on {node.name!r} is not a diagram node id; using own id."
+                    )
+                else:
+                    key = peer
+        out[uid] = key
+    return out
+
+
+def _validate_workspace_keys_vs_fmu(
+    node_by_id: dict[UUID, ElementaryInstance],
+    workspace_key_uid: dict[UUID, UUID],
+    diagnostics: list[str],
+) -> bool:
+    """FMU diagram nodes must use their own workspace slot (no fusion)."""
+    ok = True
+    for uid, node in node_by_id.items():
+        if not _is_fmu_diagram_node(node):
+            continue
+        if workspace_key_uid.get(uid, uid) != uid:
+            diagnostics.append(
+                f"FMU block {node.name!r}: dataflow.scalar_slot_id fusion is not supported; remove slot override."
+            )
+            ok = False
+    return ok
 
 
 def _skip_unconnected_fmu_input(var_meta: dict[str, Any] | None) -> bool:
@@ -308,7 +503,7 @@ class DataflowCompilePass:
             node_by_id[n.id] = n
 
         incoming: dict[UUID, dict[str, WireRef]] = defaultdict(dict)
-        edges: list[tuple[UUID, UUID]] = []
+        edge_list: list[FeedbackWire] = []
 
         for c in iter_live_connectors(model):
             src = model.find_by_id(c.source_instance_id)
@@ -317,32 +512,40 @@ class DataflowCompilePass:
                 continue
             if src.id not in node_by_id or dst.id not in node_by_id:
                 continue
-            incoming[dst.id][c.target_pin] = (src.id, str(c.source_pin or "out"))
-            edges.append((src.id, dst.id))
+            tp = str(c.target_pin)
+            incoming[dst.id][tp] = (src.id, str(c.source_pin or "out"))
+            edge_list.append((src.id, dst.id, tp))
 
         ids = list(node_by_id.keys())
-        in_deg = {i: 0 for i in ids}
-        adj: dict[UUID, list[UUID]] = defaultdict(list)
-        for a, b in edges:
-            if a in in_deg and b in in_deg:
-                adj[a].append(b)
-                in_deg[b] += 1
-
-        q = deque([i for i in ids if in_deg[i] == 0])
-        topo: list[UUID] = []
-        while q:
-            u = q.popleft()
-            topo.append(u)
-            for v in adj[u]:
-                in_deg[v] -= 1
-                if in_deg[v] == 0:
-                    q.append(v)
-
-        if len(topo) != len(ids):
-            ctx.diagnostics.append("Dataflow graph has a cycle; simulation is undefined.")
+        workspace_key_uid = _workspace_key_uid_map(node_by_id, ctx.diagnostics)
+        if not _validate_workspace_keys_vs_fmu(node_by_id, workspace_key_uid, ctx.diagnostics):
             ctx.artifacts["dataflow"] = None
             ctx.artifacts["fmu_diagram"] = None
             return ctx
+
+        fmu_ids_preview = frozenset(uid for uid, n in node_by_id.items() if _is_fmu_diagram_node(n))
+        if _fmu_in_feedback_cycle(edge_list, ids, fmu_ids_preview):
+            ctx.diagnostics.append(
+                "Dataflow graph has a cycle involving an FMU block; delayed feedback is not supported for FMU nodes."
+            )
+            ctx.artifacts["dataflow"] = None
+            ctx.artifacts["fmu_diagram"] = None
+            return ctx
+
+        feedback_edges_list, dag_edges = _minimal_feedback_arc_set(edge_list, ids)
+        feedback_frozen = frozenset(feedback_edges_list)
+        topo, dag_ok = _kahn_toposort(dag_edges, ids)
+        if not dag_ok:
+            ctx.diagnostics.append("Dataflow graph cycle resolution failed internally.")
+            ctx.artifacts["dataflow"] = None
+            ctx.artifacts["fmu_diagram"] = None
+            return ctx
+
+        if feedback_frozen:
+            ctx.diagnostics.append(
+                "Dataflow graph had directed cycles; inferred unit-delay feedback on "
+                f"{len(feedback_frozen)} edge(s) (see execution_semantics_v0_2, delayed feedback)."
+            )
 
         for n in node_by_id.values():
             if isinstance(n, ElementaryInstance) and not isinstance(n, (Variable, BasicOperator)):
@@ -366,5 +569,7 @@ class DataflowCompilePass:
             topo_order=topo,
             node_by_id=node_by_id,
             incoming=incoming_ro,
+            feedback_edges=feedback_frozen,
+            workspace_key_uid=dict(workspace_key_uid),
         )
         return ctx

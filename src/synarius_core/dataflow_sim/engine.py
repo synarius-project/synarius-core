@@ -107,18 +107,20 @@ class SimpleRunEngine:
         self._run_equations = None
         if self._compiled is None:
             return
+        wk_map = self._compiled.workspace_key_uid or {}
         for uid, node in self._compiled.node_by_id.items():
+            sk = wk_map.get(uid, uid)
             if isinstance(node, Variable):
                 try:
                     v = float(node.value)
                 except (TypeError, ValueError):
                     v = 0.0
-                self._workspace[uid] = v
-                self._initial_snapshot[uid] = v
+                self._workspace[sk] = v
+                self._initial_snapshot[sk] = v
             elif isinstance(node, ElementaryInstance):
                 # Operators and non-FMU elementaries: scalar slot (FMU outputs are filled by step_fmu).
-                self._workspace[uid] = 0.0
-                self._initial_snapshot[uid] = 0.0
+                self._workspace.setdefault(sk, 0.0)
+                self._initial_snapshot.setdefault(sk, 0.0)
 
         src = generate_unrolled_python_step_document(
             self._compiled,
@@ -163,17 +165,22 @@ class SimpleRunEngine:
         if self._compiled is None or self._run_equations is None:
             return
 
+        # Snapshot before this step's stimulation (committed end of previous step) for delayed feedback.
+        workspace_previous = dict(self._workspace) if self._compiled.feedback_edges else None
+
         self._ctx.time_s += self._dt_s
         t = self._ctx.time_s
         stimmed: set[UUID] = set()
         self._sync_ctx_options()
         self._ctx.scalar_workspace = self._workspace
 
+        wk_map = self._compiled.workspace_key_uid or {}
         for uid, node in self._compiled.node_by_id.items():
             if isinstance(node, Variable):
                 sv = stimulation_value(node, t)
                 if sv is not None:
-                    self._workspace[uid] = float(sv)
+                    sk = wk_map.get(uid, uid)
+                    self._workspace[sk] = float(sv)
                     stimmed.add(uid)
 
         exchange = RunStepExchange(
@@ -181,6 +188,7 @@ class SimpleRunEngine:
             stimmed=stimmed,
             time_s=self._ctx.time_s,
             dt_s=self._dt_s,
+            workspace_previous=workspace_previous,
             fmu_step=self._invoke_runtime_fmu_step,
             simulation_context=self._ctx,
         )
@@ -231,6 +239,9 @@ class SimpleRunEngine:
     def _apply_workspace_to_variables(self) -> None:
         if self._compiled is None:
             return
+        wk_map = self._compiled.workspace_key_uid or {}
         for uid, node in self._compiled.node_by_id.items():
-            if isinstance(node, Variable) and uid in self._workspace:
-                node.value = self._workspace[uid]
+            if isinstance(node, Variable):
+                sk = wk_map.get(uid, uid)
+                if sk in self._workspace:
+                    node.value = self._workspace[sk]
