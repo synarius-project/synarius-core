@@ -4,7 +4,7 @@
 
 GUI-less simulation backend for Synarius.
 
-**Python 3.11.x** is required (see `requires-python` in `pyproject.toml`).
+**Python 3.11–3.14** is supported (see `requires-python` in `pyproject.toml`).
 
 **Contributing:** follow the **[Synarius programming guidelines](https://synarius-project.github.io/synarius-guidelines/programming_guidelines.html)** (HTML) and this repository’s **[CONTRIBUTING.md](CONTRIBUTING.md)**.
 

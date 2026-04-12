@@ -23,14 +23,16 @@ You can contribute by:
    git checkout -b feature/my-feature
    ```
 
-3. Make your changes
-4. Run tests:
+3. Use a **virtual environment** and install **synarius-core** in editable mode with the same `python` you use for tests and tooling (see **[README.md](README.md)**). Optional extras (e.g. `[timeseries]`, `[fmu]`) belong in that same environment.
+
+4. Make your changes
+5. Run tests:
 
    ```bash
    pytest
    ```
 
-5. Open a Pull Request
+6. Open a Pull Request
 
 ## Development Guidelines
 
