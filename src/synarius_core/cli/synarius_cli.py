@@ -4,7 +4,7 @@ import argparse
 import re
 from pathlib import Path
 
-from synarius_core.controller import CommandError, MinimalController
+from synarius_core.controller import CommandError, SynariusController
 
 ANSI_RESET = "\x1b[0m"
 DEFAULT_OUTPUT_COLOR = "#ADD8E6"  # light blue
@@ -26,7 +26,7 @@ def _colorize(text: str, html_color: str) -> str:
     return f"{_html_hex_to_ansi_fg(html_color)}{text}{ANSI_RESET}"
 
 
-def _get_output_color(controller: MinimalController) -> str:
+def _get_output_color(controller: SynariusController) -> str:
     try:
         value = controller.model.root.get("output_color")
         if isinstance(value, str):
@@ -38,31 +38,40 @@ def _get_output_color(controller: MinimalController) -> str:
 
 
 def _print_banner() -> None:
-    print(_colorize("synarius-core minimal CLI", DEFAULT_OUTPUT_COLOR))
-    print(_colorize("Type 'help' for commands, 'exit' to quit.", DEFAULT_OUTPUT_COLOR))
+    print(_colorize("Synarius CLI — interactive Controller Command Protocol (synarius-core)", DEFAULT_OUTPUT_COLOR))
+    print(_colorize("Shell: synarius-cli   | Type 'help' for commands, 'exit' or Ctrl+D to quit.", DEFAULT_OUTPUT_COLOR))
 
 
 def _print_help() -> None:
     print(
         _colorize(
-        "\n".join(
-            [
-                "Built-in commands:",
-                "  help                    Show this help",
-                "  exit | quit             Exit CLI",
-                "  load <file.syn>         Load command-stack script",
-                "",
-                "Protocol commands:",
-                "  ls, lsattr [-l], cd <path> (incl. @libraries/… for FMF libs), new …, select … (-p append, -m remove), set … (set -p @selection …), get …, del … | del @selected",
-                "  fmu inspect <path.fmu> | fmu bind <ref> [from=<path>] | fmu reload <ref> [path=<path>]",
-            ]
-        ),
-        DEFAULT_OUTPUT_COLOR,
+            "\n".join(
+                [
+                    "Synarius CLI runs the same text protocol as Studio/ParaWiz consoles.",
+                    "",
+                    "Built-in (REPL) commands:",
+                    "  help                    Show this help",
+                    "  exit | quit             Leave the REPL",
+                    "  load <file.syn>         Load a command script (also: synarius-cli --load <file>)",
+                    "",
+                    "Protocol commands (selection, model, libraries, parameters, FMU, …):",
+                    "  ls, lsattr [-l], cd <path>   Navigate (incl. @libraries/… for FMF)",
+                    "  new …                        Create objects (Variable, Connector, DataSet, …)",
+                    "  select … (-p append, -m remove)   get / set … del … | del @selected",
+                    "  set … set -p @selection … (delta)",
+                    "  mv … cp …   import -dcm=…   write …",
+                    "  inspect <ref> | sync <ref> [from=<path> | path=<path>]",
+                    "  (file-only helper: fmu inspect <path.fmu>; bind/reload removed — use sync <ref>)",
+                    "",
+                    "See synarius-core docs: specifications/controller_command_protocol.rst",
+                ]
+            ),
+            DEFAULT_OUTPUT_COLOR,
         )
     )
 
 
-def run_repl(controller: MinimalController) -> int:
+def run_repl(controller: SynariusController) -> int:
     _print_banner()
     while True:
         prompt_path = str(controller.current.get("prompt_path")) if controller.current is not None else "<none>"
@@ -97,15 +106,22 @@ def run_repl(controller: MinimalController) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="synarius-core minimal protocol CLI")
+    parser = argparse.ArgumentParser(
+        prog="synarius-cli",
+        description=(
+            "Interactive REPL for the Synarius Controller Command Protocol (CCP). "
+            "Drives synarius_core without a GUI."
+        ),
+    )
     parser.add_argument(
         "--load",
         type=Path,
-        help="Optional .syn command-stack file to load before entering REPL.",
+        metavar="FILE",
+        help="Optional .syn script to run before the REPL starts (same as: load \"FILE\").",
     )
     args = parser.parse_args(argv)
 
-    controller = MinimalController()
+    controller = SynariusController()
     if args.load is not None:
         try:
             result = controller.execute(f'load "{args.load}"')

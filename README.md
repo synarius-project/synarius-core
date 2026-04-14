@@ -75,6 +75,16 @@ pip install -e ".[timeseries]"
 - Live docs: https://synarius-project.github.io/synarius-core/
 - Docs source: https://github.com/synarius-project/synarius-core/tree/main/docs
 
+In a **full Synarius monorepo checkout**, the Sphinx docs also pull in the repo-root ``COVERAGE.md`` and ``synarius-guidelines/docs/programming_guidelines.rst`` under **Developer documentation** (see ``docs/developer/``). Build locally:
+
+```bash
+cd synarius-core
+pip install -e ".[docs]"
+sphinx-build -b html docs docs/_build/html
+```
+
+Open ``docs/_build/html/index.html`` in a browser.
+
 ## Branching Strategy
 
 This repository uses a simple branching model that fits a solo-developer phase and can be tightened later without changing the overall flow.

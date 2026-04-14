@@ -8,7 +8,10 @@ import sys
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable
+from typing import TYPE_CHECKING, Any, Iterable
+
+if TYPE_CHECKING:
+    from synarius_core.plugins.element_type_registry import ElementTypeRegistry
 
 
 def _text(el: ET.Element | None) -> str:
@@ -47,51 +50,54 @@ def _src_adjacent_plugins_dir() -> Path | None:
     return cand if cand.is_dir() else None
 
 
-def enumerate_plugin_package_dirs(
-    *,
-    extra_plugin_containers: Iterable[Path] | None = None,
-    scan_builtin_plugin_directories: bool = True,
-) -> list[Path]:
-    """List plugin package roots (each folder contains ``pluginDescription.xml``).
+def _registry_add_container(containers: list[Path], seen_ct: set[Path], path: Path) -> None:
+    r = path.resolve()
+    if r not in seen_ct:
+        seen_ct.add(r)
+        containers.append(r)
 
-    *extra_plugin_containers* are additional ``Plugins``-style directories whose immediate
-    subdirectories are scanned (same layout as the host ``Plugins/`` folder).
-    """
+
+def _collect_builtin_plugin_container_dirs(containers: list[Path], seen_ct: set[Path]) -> None:
+    reg_pkg = Path(__file__).resolve().parent
+    if reg_pkg.is_dir():
+        try:
+            has_manifest = any(
+                p.is_dir() and (p / "pluginDescription.xml").is_file() for p in reg_pkg.iterdir()
+            )
+        except OSError:
+            has_manifest = False
+        if has_manifest:
+            _registry_add_container(containers, seen_ct, reg_pkg)
+    adj = _src_adjacent_plugins_dir()
+    if adj is not None:
+        _registry_add_container(containers, seen_ct, adj)
+    for c in _discover_default_plugin_container_dirs():
+        _registry_add_container(containers, seen_ct, c)
+
+
+def _collect_extra_plugin_containers(
+    containers: list[Path], seen_ct: set[Path], extra: Iterable[Path] | None
+) -> None:
+    for raw in extra or ():
+        p = Path(raw).resolve()
+        if p.is_dir():
+            _registry_add_container(containers, seen_ct, p)
+
+
+def _collect_plugin_scan_containers(
+    *,
+    extra_plugin_containers: Iterable[Path] | None,
+    scan_builtin_plugin_directories: bool,
+) -> list[Path]:
     containers: list[Path] = []
     seen_ct: set[Path] = set()
     if scan_builtin_plugin_directories:
-        # Wheel / site-packages: bundled plugins live as subdirs of this package (e.g. FmuRuntime/)
-        # next to registry.py. ``cur / "Plugins"`` alone misses lowercase ``plugins/`` on Linux.
-        reg_pkg = Path(__file__).resolve().parent
-        if reg_pkg.is_dir():
-            try:
-                has_manifest = any(
-                    p.is_dir() and (p / "pluginDescription.xml").is_file() for p in reg_pkg.iterdir()
-                )
-            except OSError:
-                has_manifest = False
-            if has_manifest:
-                r = reg_pkg.resolve()
-                if r not in seen_ct:
-                    seen_ct.add(r)
-                    containers.append(r)
-        adj = _src_adjacent_plugins_dir()
-        if adj is not None:
-            r = adj.resolve()
-            if r not in seen_ct:
-                seen_ct.add(r)
-                containers.append(r)
-        for c in _discover_default_plugin_container_dirs():
-            r = c.resolve()
-            if r not in seen_ct:
-                seen_ct.add(r)
-                containers.append(r)
-    for raw in extra_plugin_containers or ():
-        p = Path(raw).resolve()
-        if p.is_dir() and p not in seen_ct:
-            seen_ct.add(p)
-            containers.append(p)
+        _collect_builtin_plugin_container_dirs(containers, seen_ct)
+    _collect_extra_plugin_containers(containers, seen_ct, extra_plugin_containers)
+    return containers
 
+
+def _plugin_packages_under_containers(containers: list[Path]) -> list[Path]:
     pkg_seen: set[Path] = set()
     out: list[Path] = []
     for base in containers:
@@ -106,6 +112,23 @@ def enumerate_plugin_package_dirs(
             pkg_seen.add(cr)
             out.append(cr)
     return out
+
+
+def enumerate_plugin_package_dirs(
+    *,
+    extra_plugin_containers: Iterable[Path] | None = None,
+    scan_builtin_plugin_directories: bool = True,
+) -> list[Path]:
+    """List plugin package roots (each folder contains ``pluginDescription.xml``).
+
+    *extra_plugin_containers* are additional ``Plugins``-style directories whose immediate
+    subdirectories are scanned (same layout as the host ``Plugins/`` folder).
+    """
+    containers = _collect_plugin_scan_containers(
+        extra_plugin_containers=extra_plugin_containers,
+        scan_builtin_plugin_directories=scan_builtin_plugin_directories,
+    )
+    return _plugin_packages_under_containers(containers)
 
 
 @dataclass(frozen=True, slots=True)
@@ -260,6 +283,29 @@ class PluginRegistry:
 
     def plugin_for_capability(self, capability: str) -> LoadedPlugin | None:
         return self._by_capability.get(capability)
+
+    def register_element_handlers(self, registry: "ElementTypeRegistry") -> None:
+        """Populate *registry* from ``element_type_handlers()`` on each loaded plugin instance."""
+        from synarius_core.plugins.element_type_registry import ElementTypeRegistry as ETR
+
+        if not isinstance(registry, ETR):
+            raise TypeError(f"Expected ElementTypeRegistry, got {type(registry)!r}")
+        registry.clear()
+        for lp in self._loaded:
+            inst = lp.instance
+            fn = getattr(inst, "element_type_handlers", None)
+            if not callable(fn):
+                continue
+            try:
+                raw = fn()
+            except Exception as exc:  # noqa: BLE001
+                raise RuntimeError(
+                    f"element_type_handlers() failed for plugin {lp.manifest.name!r}: {exc}"
+                ) from exc
+            if not raw:
+                continue
+            for h in raw:
+                registry.register(h)
 
     def iter_compile_passes(self, stage: str = "compile") -> list[Any]:
         """Return plugin-provided compiler pass objects for *stage*, sorted by ``name``."""

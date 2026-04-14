@@ -2,7 +2,7 @@
 
 
 a = Analysis(
-    ['src\\synarius_core\\cli\\minimal_cli.py'],
+    ['src\\synarius_core\\cli\\synarius_cli.py'],
     pathex=[],
     binaries=[],
     datas=[],

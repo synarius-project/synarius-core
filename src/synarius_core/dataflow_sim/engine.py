@@ -9,11 +9,12 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from synarius_core.model import ElementaryInstance, Model, Variable
 
+from synarius_core.plugins.element_types import SimContext
 from synarius_core.plugins.registry import PluginRegistry, run_plugin_compile_passes
 
 try:
@@ -79,6 +80,7 @@ class SimpleRunEngine:
         # True after ``init_fmu`` ran successfully; ``shutdown_fmu`` only then (avoids spurious
         # shutdown when the registry loads the plugin for the first time).
         self._runtime_fmu_session: bool = False
+        self._fmu_sim_rt: Any = None
         self._run_equations: Callable[[RunStepExchange], None] | None = None
 
     @property
@@ -88,6 +90,24 @@ class SimpleRunEngine:
     @property
     def dt_s(self) -> float:
         return self._dt_s
+
+    def _plugin_sim_context(self) -> SimContext:
+        """Adapt engine :class:`SimulationContext` to :class:`~synarius_core.plugins.element_types.SimContext` for ``SimulationRuntimePlugin``.
+
+        Uses the **same** ``artifacts`` / ``scalar_workspace`` / ``options`` / ``diagnostics``
+        objects as the live :class:`SimulationContext` so FMU runtime writes stay visible to the engine.
+        """
+        c = self._ctx
+        sw = c.scalar_workspace
+        if sw is None:
+            sw = {}
+        return SimContext(
+            artifacts=c.artifacts,
+            scalar_workspace=sw,
+            options=c.options,
+            diagnostics=c.diagnostics,
+            time_s=c.time_s,
+        )
 
     def init(self, ctx: SimulationContext | None = None) -> None:
         """(Re)compile and reset time and workspace from current model variable values."""
@@ -132,10 +152,23 @@ class SimpleRunEngine:
         if self._plugin_registry is not None:
             lp = self._plugin_registry.plugin_for_capability("runtime:fmu")
             if lp is not None:
-                fn = getattr(lp.instance, "init_fmu", None)
-                if callable(fn):
-                    fn(self._ctx)
-                    self._runtime_fmu_session = True
+                self._fmu_sim_rt = None
+                sr_fn = getattr(lp.instance, "simulation_runtime", None)
+                if callable(sr_fn):
+                    try:
+                        self._fmu_sim_rt = sr_fn()
+                    except Exception:
+                        self._fmu_sim_rt = None
+                if self._fmu_sim_rt is not None:
+                    ri = getattr(self._fmu_sim_rt, "runtime_init", None)
+                    if callable(ri):
+                        ri(self._plugin_sim_context())
+                        self._runtime_fmu_session = True
+                else:
+                    fn = getattr(lp.instance, "init_fmu", None)
+                    if callable(fn):
+                        fn(self._ctx)
+                        self._runtime_fmu_session = True
 
     def _sync_ctx_options(self) -> None:
         self._ctx.options["communication_step_size"] = self._dt_s
@@ -153,9 +186,14 @@ class SimpleRunEngine:
         if self._plugin_registry is not None and self._compiled is not None:
             lp = self._plugin_registry.plugin_for_capability("runtime:fmu")
             if lp is not None:
-                rn = getattr(lp.instance, "reset_fmu", None)
-                if callable(rn):
-                    rn(self._ctx)
+                if self._fmu_sim_rt is not None:
+                    rr = getattr(self._fmu_sim_rt, "runtime_reset", None)
+                    if callable(rr):
+                        rr(self._plugin_sim_context())
+                else:
+                    rn = getattr(lp.instance, "reset_fmu", None)
+                    if callable(rn):
+                        rn(self._ctx)
         self._apply_workspace_to_variables()
 
     def step(self, ctx: SimulationContext | None = None) -> None:
@@ -204,6 +242,8 @@ class SimpleRunEngine:
         lp = self._plugin_registry.plugin_for_capability("runtime:fmu")
         if lp is None:
             return
+        if self._fmu_sim_rt is not None:
+            return
         if callable(getattr(lp.instance, "step_fmu", None)):
             return
         fn = getattr(lp.instance, "step", None)
@@ -220,10 +260,17 @@ class SimpleRunEngine:
         lp = self._plugin_registry.plugin_for_capability("runtime:fmu")
         if lp is None:
             self._runtime_fmu_session = False
+            self._fmu_sim_rt = None
             return
-        fn = getattr(lp.instance, "shutdown_fmu", None)
-        if callable(fn):
-            fn(self._ctx)
+        if self._fmu_sim_rt is not None:
+            rs = getattr(self._fmu_sim_rt, "runtime_shutdown", None)
+            if callable(rs):
+                rs(self._plugin_sim_context())
+            self._fmu_sim_rt = None
+        else:
+            fn = getattr(lp.instance, "shutdown_fmu", None)
+            if callable(fn):
+                fn(self._ctx)
         self._runtime_fmu_session = False
 
     def _invoke_runtime_fmu_step(self, uid: UUID) -> None:
@@ -231,6 +278,11 @@ class SimpleRunEngine:
             return
         lp = self._plugin_registry.plugin_for_capability("runtime:fmu")
         if lp is None:
+            return
+        if self._fmu_sim_rt is not None:
+            st = getattr(self._fmu_sim_rt, "runtime_step", None)
+            if callable(st):
+                st(self._plugin_sim_context(), uid)
             return
         fn = getattr(lp.instance, "step_fmu", None)
         if callable(fn):

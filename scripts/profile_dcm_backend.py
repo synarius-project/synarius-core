@@ -15,7 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from synarius_core.controller import MinimalController  # noqa: E402
+from synarius_core.controller import SynariusController  # noqa: E402
 from synarius_core.model.data_model import ComplexInstance  # noqa: E402
 from synarius_core.parameters.dcm_io import import_dcm_for_dataset, parse_dcm_specs  # noqa: E402
 
@@ -31,7 +31,7 @@ def _print_top(label: str, profiler: cProfile.Profile, n: int = 30) -> None:
     print(buf.getvalue())
 
 
-def _cal_param_ids(ctl: MinimalController) -> list:
+def _cal_param_ids(ctl: SynariusController) -> list:
     out = []
     for node in ctl.model.iter_objects():
         if not isinstance(node, ComplexInstance) or node.id is None:
@@ -58,7 +58,7 @@ def main() -> None:
     print(f"parse_dcm_specs: {len(specs)} specs from {DCM_MAX.name} (~{len(text) // 1024} KiB text)\n")
     _print_top("A) parse_dcm_specs only — top 30 cumulative", pr1)
 
-    ctl = MinimalController()
+    ctl = SynariusController()
     ctl.execute("cd @main/parameters/data_sets")
     cli_path = DCM_MAX.as_posix()
     ds_ref = (ctl.execute(f'new DataSet ProfMax source_path="{cli_path}" source_format=dcm') or "").strip()

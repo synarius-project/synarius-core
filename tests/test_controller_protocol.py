@@ -9,20 +9,26 @@ from uuid import UUID
 
 sys.path.append(str(Path(__file__).resolve().parents[1] / "src"))
 
-from synarius_core.controller import CommandError, MinimalController  # noqa: E402
+from synarius_core.controller import CommandError, SynariusController  # noqa: E402
 from synarius_core.model import ElementaryInstance  # noqa: E402
 from synarius_core.variable_naming import InvalidVariableNameError  # noqa: E402
 
+# Avoid ``new FmuInstance`` auto-fill when asserting kwargs against a non-existent placeholder path.
+_PLACEHOLDER_FMU_PORT = (
+    '[{"name":"u","value_reference":1,'
+    '"causality":"input","variability":"continuous","data_type":"float"}]'
+)
 
-class MinimalControllerProtocolTest(unittest.TestCase):
+
+class SynariusControllerProtocolTest(unittest.TestCase):
     def test_new_basic_operator_accepts_position(self) -> None:
-        ctl = MinimalController()
+        ctl = SynariusController()
         ctl.execute("new BasicOperator + 10 20 1 name=OpPlaced")
         self.assertEqual(float(ctl.execute("get OpPlaced.x")), 10.0)
         self.assertEqual(float(ctl.execute("get OpPlaced.y")), 20.0)
 
     def test_new_set_get_and_ls(self) -> None:
-        ctl = MinimalController()
+        ctl = SynariusController()
         created = ctl.execute("new Variable Speed")
         self.assertIsNotNone(created)
 
@@ -34,8 +40,14 @@ class MinimalControllerProtocolTest(unittest.TestCase):
         self.assertEqual(got, "3.14")
 
     def test_new_fmu_instance(self) -> None:
-        ctl = MinimalController()
-        hn = (ctl.execute('new FmuInstance myFmu fmu_path=/tmp/a.fmu fmi_version=2.0 fmu_type=CoSimulation') or "").strip()
+        ctl = SynariusController()
+        hn = (
+            ctl.execute(
+                "new FmuInstance myFmu fmu_path=/tmp/a.fmu fmi_version=2.0 fmu_type=CoSimulation "
+                f"fmu_ports={shlex.quote(_PLACEHOLDER_FMU_PORT)}"
+            )
+            or ""
+        ).strip()
         self.assertTrue(hn)
         obj = ctl._resolve_ref(hn)
         self.assertIsInstance(obj, ElementaryInstance)
@@ -45,10 +57,11 @@ class MinimalControllerProtocolTest(unittest.TestCase):
         self.assertEqual(obj.get("fmu.fmu_type"), "CoSimulation")
 
     def test_new_elementary_fmu_block_via_library_type_key(self) -> None:
-        ctl = MinimalController()
+        ctl = SynariusController()
         hn = (
             ctl.execute(
-                "new Elementary ef type_key=custom.Fmu fmu_path=/tmp/c.fmu fmi_version=3.0 fmu_type=ModelExchange"
+                "new Elementary ef type_key=custom.Fmu fmu_path=/tmp/c.fmu fmi_version=3.0 fmu_type=ModelExchange "
+                f"fmu_ports={shlex.quote(_PLACEHOLDER_FMU_PORT)}"
             )
             or ""
         ).strip()
@@ -59,7 +72,7 @@ class MinimalControllerProtocolTest(unittest.TestCase):
         self.assertEqual(obj.get("fmu.fmi_version"), "3.0")
 
     def test_new_fmu_instance_with_ports_literal(self) -> None:
-        ctl = MinimalController()
+        ctl = SynariusController()
         ports_json = (
             '[{"name":"u","value_reference":1,'
             '"causality":"input","variability":"continuous","data_type":"float"}]'
@@ -73,7 +86,7 @@ class MinimalControllerProtocolTest(unittest.TestCase):
         self.assertEqual(pmap["u"].get("value_reference"), 1)
 
     def test_new_fmu_instance_with_fmu_variables_literal(self) -> None:
-        ctl = MinimalController()
+        ctl = SynariusController()
         ports_json = (
             '[{"name":"u","value_reference":1,'
             '"causality":"input","variability":"continuous","data_type":"float"}]'
@@ -96,24 +109,30 @@ class MinimalControllerProtocolTest(unittest.TestCase):
         self.assertEqual(vlist[1]["causality"], "output")
 
     def test_set_get_fmu_extra_meta_nested(self) -> None:
-        ctl = MinimalController()
-        hn = (ctl.execute("new FmuInstance metaBlk fmu_path=/tmp/x.fmu") or "").strip()
+        ctl = SynariusController()
+        hn = (
+            ctl.execute(
+                "new FmuInstance metaBlk fmu_path=/tmp/x.fmu "
+                f"fmu_ports={shlex.quote(_PLACEHOLDER_FMU_PORT)}"
+            )
+            or ""
+        ).strip()
         ctl.execute(f"set {hn}.fmu.extra_meta.note hello")
         self.assertEqual((ctl.execute(f"get {hn}.fmu.extra_meta.note") or "").strip(), "hello")
 
     def test_new_variable_rejects_invalid_python_name(self) -> None:
-        ctl = MinimalController()
+        ctl = SynariusController()
         with self.assertRaises(InvalidVariableNameError):
             ctl.execute("new Variable 1bad")
 
     def test_set_name_rejects_invalid_python_identifier(self) -> None:
-        ctl = MinimalController()
+        ctl = SynariusController()
         ctl.execute("new Variable okname")
         with self.assertRaises(InvalidVariableNameError):
             ctl.execute("set okname.name bad-name")
 
     def test_select_and_set_selection(self) -> None:
-        ctl = MinimalController()
+        ctl = SynariusController()
         ctl.execute("new Variable A")
         ctl.execute("new Variable B")
         ctl.execute("select A B")
@@ -121,7 +140,7 @@ class MinimalControllerProtocolTest(unittest.TestCase):
         self.assertEqual(updated, "2")
 
     def test_select_append_mode(self) -> None:
-        ctl = MinimalController()
+        ctl = SynariusController()
         ctl.execute("new Variable A")
         ctl.execute("new Variable B")
         ctl.execute("new Variable C")
@@ -130,12 +149,12 @@ class MinimalControllerProtocolTest(unittest.TestCase):
         self.assertEqual([obj.name for obj in ctl.selection], ["A", "B", "C"])
 
     def test_select_append_requires_operand(self) -> None:
-        ctl = MinimalController()
+        ctl = SynariusController()
         with self.assertRaises(CommandError):
             ctl.execute("select -p")
 
     def test_select_remove_mode(self) -> None:
-        ctl = MinimalController()
+        ctl = SynariusController()
         ctl.execute("new Variable A")
         ctl.execute("new Variable B")
         ctl.execute("new Variable C")
@@ -146,13 +165,13 @@ class MinimalControllerProtocolTest(unittest.TestCase):
         self.assertEqual(ctl.selection, [])
 
     def test_select_remove_requires_operand(self) -> None:
-        ctl = MinimalController()
+        ctl = SynariusController()
         ctl.execute("new Variable X")
         with self.assertRaises(CommandError):
             ctl.execute("select -m")
 
     def test_cd_allows_elementary_object_context(self) -> None:
-        ctl = MinimalController()
+        ctl = SynariusController()
         ctl.execute("new Variable Elem")
         path = ctl.execute("cd Elem") or ""
         self.assertIn("Elem@", path)
@@ -160,7 +179,7 @@ class MinimalControllerProtocolTest(unittest.TestCase):
         self.assertIn("main@", back)
 
     def test_lsattr_shows_values_and_long_flags(self) -> None:
-        ctl = MinimalController()
+        ctl = SynariusController()
         ctl.execute("new Variable Speed")
         ctl.execute("set Speed.value 3.14")
 
@@ -188,14 +207,14 @@ class MinimalControllerProtocolTest(unittest.TestCase):
         self.assertNotIn("=", long_out)
 
     def test_lsattr_accepts_context_argument(self) -> None:
-        ctl = MinimalController()
+        ctl = SynariusController()
         ctl.execute("new Variable Speed")
         out = ctl.execute("lsattr Speed") or ""
         self.assertIn("NAME", out)
         self.assertIn("name", out)
 
     def test_load_script(self) -> None:
-        ctl = MinimalController()
+        ctl = SynariusController()
         script = "\n".join(
             [
                 "new Variable V1",
@@ -211,7 +230,7 @@ class MinimalControllerProtocolTest(unittest.TestCase):
 
     def test_load_rebinds_at_main_alias_for_root_attrs(self) -> None:
         """``load`` replaces ``model``; @main must target the new root or ``set @main.*`` affects the wrong tree."""
-        ctl = MinimalController()
+        ctl = SynariusController()
         root_before = ctl.model.root
         self.assertIs(ctl.alias_roots["@main"], root_before)
         script = "new Variable Vloaded"
@@ -225,7 +244,7 @@ class MinimalControllerProtocolTest(unittest.TestCase):
         self.assertTrue(bool(ctl.model.root.get("simulation_mode")))
 
     def test_del_selected_removes_selection(self) -> None:
-        ctl = MinimalController()
+        ctl = SynariusController()
         ctl.execute("new Variable A")
         ctl.execute("new Variable B")
         ctl.execute("select A B")
@@ -237,24 +256,24 @@ class MinimalControllerProtocolTest(unittest.TestCase):
         self.assertEqual(len(ctl.selection), 0)
 
     def test_del_selected_empty_selection(self) -> None:
-        ctl = MinimalController()
+        ctl = SynariusController()
         self.assertEqual(ctl.execute("del @selected"), "0")
 
     def test_del_selected_rejects_extra_refs(self) -> None:
-        ctl = MinimalController()
+        ctl = SynariusController()
         ctl.execute("new Variable A")
         with self.assertRaises(CommandError):
             ctl.execute("del @selected A")
 
     def test_del_prunes_selection_when_object_removed_by_ref(self) -> None:
-        ctl = MinimalController()
+        ctl = SynariusController()
         ctl.execute("new Variable A")
         ctl.execute("select A")
         ctl.execute("del A")
         self.assertEqual(len(ctl.selection), 0)
 
     def test_set_selection_delta_position(self) -> None:
-        ctl = MinimalController()
+        ctl = SynariusController()
         ctl.execute("new Variable A")
         ctl.execute("new Variable B")
         ctl.execute("select A B")
@@ -266,7 +285,7 @@ class MinimalControllerProtocolTest(unittest.TestCase):
         self.assertEqual(float(ctl.execute("get B.y")), -1.0)
 
     def test_set_selection_delta_scalar(self) -> None:
-        ctl = MinimalController()
+        ctl = SynariusController()
         ctl.execute("new Variable A")
         ctl.execute("set A.value 10")
         ctl.execute("select A")
@@ -275,14 +294,14 @@ class MinimalControllerProtocolTest(unittest.TestCase):
         self.assertEqual(float(ctl.execute("get A.value")), 10.5)
 
     def test_set_selection_delta_rejects_operand_before_option(self) -> None:
-        ctl = MinimalController()
+        ctl = SynariusController()
         ctl.execute("new Variable A")
         ctl.execute("select A")
         with self.assertRaises(CommandError):
             ctl.execute("set @selection -p position 1 2")
 
     def test_cp_selection_to_dataset(self) -> None:
-        ctl = MinimalController()
+        ctl = SynariusController()
         ctl.execute("cd @main/parameters/data_sets")
         ds_a = (ctl.execute("new DataSet DS_A") or "").strip()
         ds_b = (ctl.execute("new DataSet DS_B") or "").strip()
@@ -306,7 +325,7 @@ class MinimalControllerProtocolTest(unittest.TestCase):
 
     def test_cp_selection_to_dataset_creates_missing_dest_cal_param(self) -> None:
         """cp @selection legt fehlende Ziel-Kenngröße unter dem Ziel-Datensatz an."""
-        ctl = MinimalController()
+        ctl = SynariusController()
         ctl.execute("cd @main/parameters/data_sets")
         ds_a = (ctl.execute("new DataSet DS_SRC") or "").strip()
         ds_b = (ctl.execute("new DataSet DS_TGT_EMPTY") or "").strip()
@@ -331,7 +350,7 @@ class MinimalControllerProtocolTest(unittest.TestCase):
 
     def test_dataviewer_open_widget_set_get(self) -> None:
         """CCP: DataViewer exposes ``open_widget`` for Studio to open the live widget."""
-        ctl = MinimalController()
+        ctl = SynariusController()
         hn = (ctl.execute("new DataViewer") or "").strip()
         self.assertTrue(hn)
         self.assertEqual((ctl.execute(f"get {hn}.open_widget") or "").strip().lower(), "false")
@@ -340,9 +359,9 @@ class MinimalControllerProtocolTest(unittest.TestCase):
 
     def test_new_with_explicit_id_replay_same_hash_name(self) -> None:
         fixed = UUID("aaaaaaaa-bbbb-cccc-dddd-000000000001")
-        ctl_a = MinimalController()
+        ctl_a = SynariusController()
         hn_a = (ctl_a.execute(f"new Variable ReplayV id={fixed}") or "").strip()
-        ctl_b = MinimalController()
+        ctl_b = SynariusController()
         hn_b = (ctl_b.execute(f"new Variable ReplayV id={fixed}") or "").strip()
         self.assertEqual(hn_a, hn_b)
         obj_a = ctl_a.model.find_by_id(fixed)
@@ -354,18 +373,18 @@ class MinimalControllerProtocolTest(unittest.TestCase):
 
     def test_new_duplicate_explicit_id_raises_command_error(self) -> None:
         fixed = UUID("aaaaaaaa-bbbb-cccc-dddd-000000000002")
-        ctl = MinimalController()
+        ctl = SynariusController()
         ctl.execute(f"new Variable First id={fixed}")
         with self.assertRaises(CommandError):
             ctl.execute(f"new Variable Second id={fixed}")
 
     def test_new_invalid_id_raises_command_error(self) -> None:
-        ctl = MinimalController()
+        ctl = SynariusController()
         with self.assertRaises(CommandError):
             ctl.execute("new Variable Bad id=not-a-uuid")
 
     def test_new_explicit_id_accepts_hex_without_hyphens(self) -> None:
-        ctl = MinimalController()
+        ctl = SynariusController()
         hx = "0123456789abcdef0123456789abcdef"
         u = UUID(hex=hx)
         hn = (ctl.execute(f"new Variable HexId id={hx}") or "").strip()
@@ -374,7 +393,7 @@ class MinimalControllerProtocolTest(unittest.TestCase):
         self.assertEqual(obj.hash_name, hn)
 
     def test_new_dataviewer_explicit_dataviewer_id_and_uuid(self) -> None:
-        ctl = MinimalController()
+        ctl = SynariusController()
         fixed = UUID("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
         hn = (ctl.execute(f"new DataViewer dataviewer_id=7 id={fixed}") or "").strip()
         obj = ctl.model.find_by_id(fixed)

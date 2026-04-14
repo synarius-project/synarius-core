@@ -43,6 +43,70 @@ def install_plugin_archive(archive_path: Path, plugins_container: Path) -> Path:
     return out
 
 
+def _resolve_distribution_paths(
+    archive_path: Path,
+    plugins_container: Path,
+    lib_container: Path | None,
+) -> tuple[Path, Path, Path | None]:
+    ap = Path(archive_path)
+    if not ap.is_file():
+        raise ValueError(f"Archive not found: {ap}")
+    pc = Path(plugins_container)
+    pc.mkdir(parents=True, exist_ok=True)
+    lc: Path | None = None
+    if lib_container is not None:
+        lc = Path(lib_container)
+        lc.mkdir(parents=True, exist_ok=True)
+    return ap, pc, lc
+
+
+def _extract_zip_to_dir(archive_path: Path, dest_dir: Path) -> None:
+    with zipfile.ZipFile(archive_path, "r") as zf:
+        zf.extractall(dest_dir)
+
+
+def _single_top_level_extracted_dir(extract_root: Path) -> Path:
+    children = [p for p in extract_root.iterdir() if p.is_dir() and p.name != "__MACOSX"]
+    if len(children) != 1:
+        raise ValueError("Archive must contain exactly one top-level directory.")
+    return children[0]
+
+
+def _is_standalone_plugin_package(root: Path) -> bool:
+    return (root / "pluginDescription.xml").is_file()
+
+
+def _copy_tree_as_named_sibling(src: Path, container: Path, *, kind: str) -> Path:
+    dest = (container / src.name).resolve()
+    if dest.exists():
+        label = "Plugin" if kind == "plugin" else "Library"
+        raise ValueError(f"{label} directory already exists: {dest}")
+    shutil.copytree(src, dest)
+    return dest
+
+
+def _install_subdirs_from_folder(
+    src_folder: Path,
+    dest_container: Path,
+    out_list: list[Path],
+    *,
+    kind: str,
+) -> None:
+    if not src_folder.is_dir():
+        return
+    for sub in sorted(src_folder.iterdir(), key=lambda p: p.name.lower()):
+        if not sub.is_dir():
+            continue
+        out_list.append(_copy_tree_as_named_sibling(sub, dest_container, kind=kind))
+
+
+def _require_bundle_produced_paths(out: dict[str, list[Path]]) -> None:
+    if not out["plugins"] and not out["lib"]:
+        raise ValueError(
+            "Unrecognized bundle layout (expected plugin folder or root with Plugins/ and/or Lib/)."
+        )
+
+
 def install_distribution_archive(
     archive_path: Path,
     *,
@@ -64,57 +128,21 @@ def install_distribution_archive(
 
     Raises ``ValueError`` if the layout is unknown or a destination folder already exists.
     """
-    archive_path = Path(archive_path)
-    if not archive_path.is_file():
-        raise ValueError(f"Archive not found: {archive_path}")
-    plugins_container = Path(plugins_container)
-    plugins_container.mkdir(parents=True, exist_ok=True)
-    if lib_container is not None:
-        lib_container = Path(lib_container)
-        lib_container.mkdir(parents=True, exist_ok=True)
-
+    ap, pc, lc = _resolve_distribution_paths(archive_path, plugins_container, lib_container)
     out: dict[str, list[Path]] = {"plugins": [], "lib": []}
 
     with tempfile.TemporaryDirectory() as td:
         tdp = Path(td)
-        with zipfile.ZipFile(archive_path, "r") as zf:
-            zf.extractall(tdp)
-        children = [p for p in tdp.iterdir() if p.is_dir() and p.name != "__MACOSX"]
-        if len(children) != 1:
-            raise ValueError("Archive must contain exactly one top-level directory.")
-        root = children[0]
+        _extract_zip_to_dir(ap, tdp)
+        root = _single_top_level_extracted_dir(tdp)
 
-        if (root / "pluginDescription.xml").is_file():
-            dest = (plugins_container / root.name).resolve()
-            if dest.exists():
-                raise ValueError(f"Plugin directory already exists: {dest}")
-            shutil.copytree(root, dest)
-            out["plugins"].append(dest)
+        if _is_standalone_plugin_package(root):
+            out["plugins"].append(_copy_tree_as_named_sibling(root, pc, kind="plugin"))
             return out
 
-        plug_src = root / "Plugins"
-        lib_src = root / "Lib"
-        if plug_src.is_dir():
-            for sub in sorted(plug_src.iterdir(), key=lambda p: p.name.lower()):
-                if not sub.is_dir():
-                    continue
-                dest = (plugins_container / sub.name).resolve()
-                if dest.exists():
-                    raise ValueError(f"Plugin directory already exists: {dest}")
-                shutil.copytree(sub, dest)
-                out["plugins"].append(dest)
-        if lib_container is not None and lib_src.is_dir():
-            for sub in sorted(lib_src.iterdir(), key=lambda p: p.name.lower()):
-                if not sub.is_dir():
-                    continue
-                dest = (lib_container / sub.name).resolve()
-                if dest.exists():
-                    raise ValueError(f"Library directory already exists: {dest}")
-                shutil.copytree(sub, dest)
-                out["lib"].append(dest)
+        _install_subdirs_from_folder(root / "Plugins", pc, out["plugins"], kind="plugin")
+        if lc is not None:
+            _install_subdirs_from_folder(root / "Lib", lc, out["lib"], kind="library")
+        _require_bundle_produced_paths(out)
 
-        if not out["plugins"] and not out["lib"]:
-            raise ValueError(
-                "Unrecognized bundle layout (expected plugin folder or root with Plugins/ and/or Lib/)."
-            )
     return out

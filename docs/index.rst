@@ -13,4 +13,5 @@ synarius-core Documentation
 
    requirements/index
    specifications/index
+   developer/index
 

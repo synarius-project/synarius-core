@@ -10,6 +10,10 @@ from synarius_core.model.data_model import ComplexInstance, Model
 
 from .repository import CalParamImportPrepared, ParametersRepository
 
+# Same marker / name as ParaWiz; core must not import the GUI package.
+PARAWIZ_SCRATCH_MARKER_ATTR = "parawiz_scratch_marker"
+PARAWIZ_TARGET_DATASET_NAME = "parawiz_target"
+
 
 class ParameterRuntime:
     """Bridges model ``parameters`` subtree and :class:`ParametersRepository`.
@@ -18,12 +22,20 @@ class ParameterRuntime:
     ``Model.new("main")`` does not block GUI startup on ``duckdb.connect``.
     """
 
-    __slots__ = ("model", "_repo", "_active_dataset_name")
+    __slots__ = (
+        "model",
+        "_repo",
+        "_active_dataset_name",
+        "_dataset_display_order",
+        "_target_column_data_set_id",
+    )
 
     def __init__(self, model: Model) -> None:
         self.model = model
         self._repo: ParametersRepository | None = None
         self._active_dataset_name = None
+        self._dataset_display_order: list[str] | None = None
+        self._target_column_data_set_id: UUID | None = None
 
     @property
     def repo(self) -> ParametersRepository:
@@ -46,6 +58,22 @@ class ParameterRuntime:
                 getter=lambda: self._active_dataset_name,
                 setter=lambda v: self.set_active_dataset_name(None if v in (None, "", "None") else str(v)),
                 writable=True,
+            )
+        if "dataset_display_order" not in p.attribute_dict:
+            p.attribute_dict.set_virtual(
+                "dataset_display_order",
+                getter=lambda: self.get_dataset_display_order(),
+                setter=lambda v: self.set_dataset_display_order(v),
+                writable=True,
+                exposed=True,
+            )
+        if "target_column_data_set_id" not in p.attribute_dict:
+            p.attribute_dict.set_virtual(
+                "target_column_data_set_id",
+                getter=lambda: self.get_target_column_data_set_id(),
+                setter=lambda v: self.set_target_column_data_set_id(v),
+                writable=True,
+                exposed=True,
             )
         self._ensure_num_params_virtual_on_all_datasets()
 
@@ -130,6 +158,159 @@ class ParameterRuntime:
             raise ValueError("active_dataset_name must reference an existing data_set name")
         self._active_dataset_name = ds.name
 
+    # ---- ParaWiz / comparison column order (virtual attrs on MODEL.PARAMETERS) ---
+
+    @staticmethod
+    def _truthy_parawiz_scratch_marker_value(v: Any) -> bool:
+        if isinstance(v, bool):
+            return v
+        return str(v).strip().lower() in ("1", "true", "yes", "on")
+
+    def _is_parawiz_scratch_dataset_node(self, node: ComplexInstance) -> bool:
+        try:
+            v = node.get(PARAWIZ_SCRATCH_MARKER_ATTR)
+        except Exception:
+            v = None
+        if v is not None and self._truthy_parawiz_scratch_marker_value(v):
+            return True
+        return node.name == PARAWIZ_TARGET_DATASET_NAME
+
+    def _parawiz_scratch_dataset_node(self) -> ComplexInstance | None:
+        root = self.data_sets_root()
+        legacy: ComplexInstance | None = None
+        for c in root.children:
+            if not isinstance(c, ComplexInstance) or c.id is None:
+                continue
+            if not self._is_data_set_node(c):
+                continue
+            if self._is_parawiz_scratch_dataset_node(c):
+                return c
+            if c.name == PARAWIZ_TARGET_DATASET_NAME:
+                legacy = c
+        return legacy
+
+    def _iter_registered_parameter_data_sets(self) -> list[ComplexInstance]:
+        out: list[ComplexInstance] = []
+        root = self.data_sets_root()
+        repo = self.repo
+        for c in root.children:
+            if not isinstance(c, ComplexInstance) or c.id is None:
+                continue
+            if not self._is_data_set_node(c):
+                continue
+            if repo.get_dataset_name(c.id) is None:
+                continue
+            out.append(c)
+        return out
+
+    def _sorted_comparison_dataset_nodes_default(self) -> list[ComplexInstance]:
+        """Non-scratch sets, sorted like ParaWiz before explicit order (stem, then UUID)."""
+        nodes = [n for n in self._iter_registered_parameter_data_sets() if not self._is_parawiz_scratch_dataset_node(n)]
+        repo = self.repo
+
+        def sort_key(n: ComplexInstance) -> tuple[str, str]:
+            sid = cast(UUID, n.id)
+            stem = repo.get_dataset_init_file_stem(sid)
+            return (str(stem).lower(), str(sid))
+
+        return sorted(nodes, key=sort_key)
+
+    def default_main_column_dataset_ids(self) -> list[UUID]:
+        return [cast(UUID, n.id) for n in self._sorted_comparison_dataset_nodes_default()]
+
+    def effective_main_column_dataset_ids(self) -> list[UUID]:
+        base = self.default_main_column_dataset_ids()
+        if not self._dataset_display_order:
+            return base
+        id_by_str = {
+            str(n.id): cast(UUID, n.id) for n in self._iter_registered_parameter_data_sets() if n.id is not None
+        }
+        ordered: list[UUID] = []
+        seen: set[UUID] = set()
+        for s in self._dataset_display_order:
+            uid = id_by_str.get(str(s))
+            if uid is None or uid in seen:
+                continue
+            ordered.append(uid)
+            seen.add(uid)
+        for uid in base:
+            if uid not in seen:
+                ordered.append(uid)
+                seen.add(uid)
+        return ordered
+
+    def get_dataset_display_order(self) -> list[str] | None:
+        if not self._dataset_display_order:
+            return None
+        return list(self._dataset_display_order)
+
+    @staticmethod
+    def _parse_uuid_token(token: Any) -> UUID:
+        if isinstance(token, UUID):
+            return token
+        return UUID(str(token).strip())
+
+    def _validate_registered_data_set_ids(self, ids: Sequence[UUID]) -> None:
+        roots = {cast(UUID, n.id) for n in self._iter_registered_parameter_data_sets()}
+        for uid in ids:
+            if uid not in roots:
+                raise ValueError(f"dataset_display_order contains unknown data set id: {uid}")
+
+    def set_dataset_display_order(self, value: Any) -> None:
+        if value in (None, "", "None"):
+            self._dataset_display_order = None
+            return
+        if isinstance(value, str) and value.strip() in ("", "[]", "None"):
+            self._dataset_display_order = None
+            return
+        if isinstance(value, (list, tuple)):
+            if len(value) == 0:
+                self._dataset_display_order = None
+                return
+            ids = [self._parse_uuid_token(x) for x in value]
+            if len(set(ids)) != len(ids):
+                raise ValueError("dataset_display_order must not contain duplicate dataset ids")
+            self._validate_registered_data_set_ids(ids)
+            self._dataset_display_order = [str(u) for u in ids]
+            return
+        raise ValueError(
+            "dataset_display_order expects a list of data set UUID strings, e.g. ['…','…'], or None/[] to reset"
+        )
+
+    def get_target_column_data_set_id(self) -> UUID | None:
+        return self._target_column_data_set_id
+
+    def set_target_column_data_set_id(self, value: Any) -> None:
+        if value in (None, "", "None"):
+            self._target_column_data_set_id = None
+            return
+        uid = self._parse_uuid_token(value)
+        scratch = self._parawiz_scratch_dataset_node()
+        scratch_id = scratch.id if scratch is not None else None
+        if scratch_id is not None and uid == scratch_id:
+            self._target_column_data_set_id = None
+            return
+        roots = {cast(UUID, n.id) for n in self._iter_registered_parameter_data_sets()}
+        if uid not in roots:
+            raise ValueError("target_column_data_set_id must reference a registered PARAMETER_DATA_SET")
+        self._target_column_data_set_id = uid
+
+    def effective_target_column_dataset_id(self) -> UUID | None:
+        if self._target_column_data_set_id is not None:
+            return self._target_column_data_set_id
+        scratch = self._parawiz_scratch_dataset_node()
+        return scratch.id if scratch is not None else None
+
+    def _append_new_dataset_to_display_order(self, node: ComplexInstance) -> None:
+        if self._dataset_display_order is None or node.id is None:
+            return
+        if self._is_parawiz_scratch_dataset_node(node):
+            return
+        sid = str(node.id)
+        if sid in self._dataset_display_order:
+            return
+        self._dataset_display_order.append(sid)
+
     # ---- registrations ----------------------------------------------------
 
     def register_data_set_node(
@@ -165,6 +346,7 @@ class ParameterRuntime:
         if self._active_dataset_name in (None, "", "None"):
             self._active_dataset_name = node.name
         self._install_num_params_virtual(node)
+        self._append_new_dataset_to_display_order(node)
 
     def clear_all_parameters_in_data_set(self, ds_node: ComplexInstance) -> int:
         """Remove all ``MODEL.CAL_PARAM`` descendants and DuckDB parameter rows; keep the data set row and node.
@@ -284,6 +466,60 @@ class ParameterRuntime:
         )
         self._install_cal_param_virtuals(node)
 
+    def _import_cal_param_resolve_data_set_id(
+        self, node: ComplexInstance, data_set_id: UUID | None
+    ) -> UUID:
+        parent = node.parent if isinstance(node.parent, ComplexInstance) else None
+        owner_data_set = self._dataset_ancestor_for_node(parent)
+        if owner_data_set is None or owner_data_set.id is None:
+            raise ValueError("imported cal_param must be attached under a data_set subtree")
+        owner_data_set_id = owner_data_set.id
+        if data_set_id is None:
+            return owner_data_set_id
+        if data_set_id != owner_data_set_id:
+            raise ValueError("imported cal_param data_set_id must match parent data_set")
+        return data_set_id
+
+    def _import_cal_param_apply_model_attrs(self, node: ComplexInstance, ds_id: UUID) -> None:
+        node.attribute_dict["type"] = "MODEL.CAL_PARAM"
+        if "data_set_id" in node.attribute_dict:
+            try:
+                existing = UUID(str(node.get("data_set_id")))
+            except Exception as exc:
+                raise ValueError("imported cal_param has invalid existing data_set_id attribute") from exc
+            if existing != ds_id:
+                raise ValueError("imported cal_param existing data_set_id conflicts with parent data_set")
+        else:
+            dict.__setitem__(node.attribute_dict, "data_set_id", (str(ds_id), None, None, True, False))
+
+    def _import_cal_param_write_repo_row(
+        self,
+        node: ComplexInstance,
+        ds_id: UUID,
+        *,
+        category: str,
+        display_name: str,
+        unit: str,
+        source_identifier: str,
+        values: np.ndarray,
+        axes: dict[int, np.ndarray],
+        axis_names: dict[int, str],
+        axis_units: dict[int, str],
+    ) -> None:
+        self.repo.write_cal_param_import(
+            parameter_id=node.id,
+            data_set_id=ds_id,
+            name=node.name,
+            category=category,
+            display_name=str(display_name),
+            unit=str(unit),
+            source_identifier=str(source_identifier),
+            values=values,
+            axes=axes,
+            axis_names=axis_names,
+            axis_units=axis_units,
+        )
+
     def register_cal_param_node_from_import(
         self,
         node: ComplexInstance,
@@ -301,33 +537,16 @@ class ParameterRuntime:
         """Register a cal_param and write payload in one repository path (e.g. DCM bulk import)."""
         if node.id is None:
             raise ValueError("cal_param node must be attached before registration")
-        parent = node.parent if isinstance(node.parent, ComplexInstance) else None
-        owner_data_set = self._dataset_ancestor_for_node(parent)
-        if owner_data_set is None or owner_data_set.id is None:
-            raise ValueError("imported cal_param must be attached under a data_set subtree")
-        owner_data_set_id = owner_data_set.id
-        if data_set_id is None:
-            data_set_id = owner_data_set_id
-        elif data_set_id != owner_data_set_id:
-            raise ValueError("imported cal_param data_set_id must match parent data_set")
-        node.attribute_dict["type"] = "MODEL.CAL_PARAM"
-        if "data_set_id" in node.attribute_dict:
-            try:
-                existing = UUID(str(node.get("data_set_id")))
-            except Exception as exc:
-                raise ValueError("imported cal_param has invalid existing data_set_id attribute") from exc
-            if existing != data_set_id:
-                raise ValueError("imported cal_param existing data_set_id conflicts with parent data_set")
-        else:
-            dict.__setitem__(node.attribute_dict, "data_set_id", (str(data_set_id), None, None, True, False))
-        self.repo.write_cal_param_import(
-            parameter_id=node.id,
-            data_set_id=data_set_id,
-            name=node.name,
+
+        ds_resolved = self._import_cal_param_resolve_data_set_id(node, data_set_id)
+        self._import_cal_param_apply_model_attrs(node, ds_resolved)
+        self._import_cal_param_write_repo_row(
+            node,
+            ds_resolved,
             category=category,
-            display_name=str(display_name),
-            unit=str(unit),
-            source_identifier=str(source_identifier),
+            display_name=display_name,
+            unit=unit,
+            source_identifier=source_identifier,
             values=values,
             axes=axes,
             axis_names=axis_names,
@@ -335,43 +554,43 @@ class ParameterRuntime:
         )
         self._install_cal_param_virtuals(node)
 
-    def register_cal_param_nodes_bulk_from_import(
+    def _bulk_import_validate_tag_one(self, node: ComplexInstance, prep: CalParamImportPrepared) -> None:
+        if node.id is None:
+            raise ValueError("cal_param node must be attached before registration")
+        if node.id != prep.parameter_id:
+            raise ValueError("prepared row parameter_id must match attached node id")
+        parent = node.parent if isinstance(node.parent, ComplexInstance) else None
+        owner_data_set = self._dataset_ancestor_for_node(parent)
+        if owner_data_set is None or owner_data_set.id is None:
+            raise ValueError("imported cal_param must be attached under a data_set subtree")
+        if owner_data_set.id != prep.data_set_id:
+            raise ValueError("prepared row data_set_id must match parent data_set")
+        node.attribute_dict["type"] = "MODEL.CAL_PARAM"
+        if "data_set_id" in node.attribute_dict:
+            try:
+                existing = UUID(str(node.get("data_set_id")))
+            except Exception as exc:
+                raise ValueError("imported cal_param has invalid existing data_set_id attribute") from exc
+            if existing != prep.data_set_id:
+                raise ValueError("imported cal_param existing data_set_id conflicts with parent data_set")
+        else:
+            dict.__setitem__(
+                node.attribute_dict,
+                "data_set_id",
+                (str(prep.data_set_id), None, None, True, False),
+            )
+
+    def _bulk_import_validate_tag_all(self, pairs: Sequence[tuple[ComplexInstance, CalParamImportPrepared]]) -> None:
+        for node, prep in pairs:
+            self._bulk_import_validate_tag_one(node, prep)
+
+    def _bulk_import_write_prepared(
         self,
         pairs: Sequence[tuple[ComplexInstance, CalParamImportPrepared]],
         *,
-        cooperative_hook: Callable[[], None] | None = None,
-        write_progress_hook: Callable[[int, int], None] | None = None,
-        virtual_progress_hook: Callable[[int, int], None] | None = None,
-        virtual_progress_every: int = 80,
+        cooperative_hook: Callable[[], None] | None,
+        write_progress_hook: Callable[[int, int], None] | None,
     ) -> None:
-        """Attach path already done; set model attrs, one transactional DuckDB bulk write, then virtuals."""
-        if not pairs:
-            return
-        for node, prep in pairs:
-            if node.id is None:
-                raise ValueError("cal_param node must be attached before registration")
-            if node.id != prep.parameter_id:
-                raise ValueError("prepared row parameter_id must match attached node id")
-            parent = node.parent if isinstance(node.parent, ComplexInstance) else None
-            owner_data_set = self._dataset_ancestor_for_node(parent)
-            if owner_data_set is None or owner_data_set.id is None:
-                raise ValueError("imported cal_param must be attached under a data_set subtree")
-            if owner_data_set.id != prep.data_set_id:
-                raise ValueError("prepared row data_set_id must match parent data_set")
-            node.attribute_dict["type"] = "MODEL.CAL_PARAM"
-            if "data_set_id" in node.attribute_dict:
-                try:
-                    existing = UUID(str(node.get("data_set_id")))
-                except Exception as exc:
-                    raise ValueError("imported cal_param has invalid existing data_set_id attribute") from exc
-                if existing != prep.data_set_id:
-                    raise ValueError("imported cal_param existing data_set_id conflicts with parent data_set")
-            else:
-                dict.__setitem__(
-                    node.attribute_dict,
-                    "data_set_id",
-                    (str(prep.data_set_id), None, None, True, False),
-                )
         prepared = [p for _, p in pairs]
         with self.repo.transaction():
             self.repo.write_cal_params_import_bulk(
@@ -379,6 +598,15 @@ class ParameterRuntime:
                 cooperative_hook=cooperative_hook,
                 write_progress_hook=write_progress_hook,
             )
+
+    def _bulk_import_install_virtuals(
+        self,
+        pairs: Sequence[tuple[ComplexInstance, CalParamImportPrepared]],
+        *,
+        cooperative_hook: Callable[[], None] | None,
+        virtual_progress_hook: Callable[[int, int], None] | None,
+        virtual_progress_every: int,
+    ) -> None:
         total = len(pairs)
         if cooperative_hook is not None:
             cooperative_hook()
@@ -396,17 +624,33 @@ class ParameterRuntime:
         if cooperative_hook is not None:
             cooperative_hook()
 
+    def register_cal_param_nodes_bulk_from_import(
+        self,
+        pairs: Sequence[tuple[ComplexInstance, CalParamImportPrepared]],
+        *,
+        cooperative_hook: Callable[[], None] | None = None,
+        write_progress_hook: Callable[[int, int], None] | None = None,
+        virtual_progress_hook: Callable[[int, int], None] | None = None,
+        virtual_progress_every: int = 80,
+    ) -> None:
+        """Attach path already done; set model attrs, one transactional DuckDB bulk write, then virtuals."""
+        if not pairs:
+            return
+
+        self._bulk_import_validate_tag_all(pairs)
+        self._bulk_import_write_prepared(
+            pairs, cooperative_hook=cooperative_hook, write_progress_hook=write_progress_hook
+        )
+        self._bulk_import_install_virtuals(
+            pairs,
+            cooperative_hook=cooperative_hook,
+            virtual_progress_hook=virtual_progress_hook,
+            virtual_progress_every=virtual_progress_every,
+        )
+
     # ---- cal_param virtual attrs -----------------------------------------
 
-    def _install_cal_param_virtuals(self, node: ComplexInstance) -> None:
-        if node.id is None:
-            raise ValueError("cal_param must have id")
-        pid = node.id
-
-        def _rec():
-            return self.repo.get_record(pid)
-
-        # metadata
+    def _cal_param_install_meta_virtuals(self, node: ComplexInstance, pid: UUID) -> None:
         for attr in (
             "category",
             "display_name",
@@ -419,12 +663,12 @@ class ParameterRuntime:
         ):
             node.attribute_dict.set_virtual(
                 attr,
-                getter=lambda a=attr: getattr(_rec(), a),
+                getter=lambda a=attr: getattr(self.repo.get_record(pid), a),
                 setter=lambda v, a=attr: self.repo.set_meta_field(pid, a, v),
                 writable=True,
             )
 
-        # values and shape (guarded)
+    def _cal_param_install_value_shape_virtuals(self, node: ComplexInstance, pid: UUID) -> None:
         node.attribute_dict.set_virtual(
             "value",
             getter=lambda: self.repo.get_value(pid),
@@ -437,36 +681,46 @@ class ParameterRuntime:
             setter=lambda v: self.repo.reshape(pid, self._parse_shape(v)),
             writable=True,
         )
-        # xN_dim virtual attrs (equivalent to shape update only on axis N)
+
+    def _cal_param_install_axis_slot(self, node: ComplexInstance, pid: UUID, axis_idx: int) -> None:
+        key = f"x{axis_idx + 1}_dim"
+        node.attribute_dict.set_virtual(
+            key,
+            getter=lambda i=axis_idx: self._get_axis_dim(pid, i),
+            setter=lambda v, i=axis_idx: self.repo.set_axis_dim(pid, i, self._parse_pos_int(v)),
+            writable=True,
+        )
+        axis_key = f"x{axis_idx + 1}_axis"
+        node.attribute_dict.set_virtual(
+            axis_key,
+            getter=lambda i=axis_idx: self.repo.get_axis_values(pid, i).tolist(),
+            setter=lambda v, i=axis_idx: self.repo.set_axis_values(pid, i, v),
+            writable=True,
+        )
+        axis_name_key = f"x{axis_idx + 1}_name"
+        node.attribute_dict.set_virtual(
+            axis_name_key,
+            getter=lambda i=axis_idx: self.repo.get_record(pid).axis_names.get(i, ""),
+            setter=lambda v, i=axis_idx: self.repo.set_axis_meta_field(pid, i, "axis_name", v),
+            writable=True,
+        )
+        axis_unit_key = f"x{axis_idx + 1}_unit"
+        node.attribute_dict.set_virtual(
+            axis_unit_key,
+            getter=lambda i=axis_idx: self.repo.get_record(pid).axis_units.get(i, ""),
+            setter=lambda v, i=axis_idx: self.repo.set_axis_meta_field(pid, i, "axis_unit", v),
+            writable=True,
+        )
+
+    def _install_cal_param_virtuals(self, node: ComplexInstance) -> None:
+        if node.id is None:
+            raise ValueError("cal_param must have id")
+        pid = node.id
+
+        self._cal_param_install_meta_virtuals(node, pid)
+        self._cal_param_install_value_shape_virtuals(node, pid)
         for axis_idx in range(5):
-            key = f"x{axis_idx + 1}_dim"
-            node.attribute_dict.set_virtual(
-                key,
-                getter=lambda i=axis_idx: self._get_axis_dim(pid, i),
-                setter=lambda v, i=axis_idx: self.repo.set_axis_dim(pid, i, self._parse_pos_int(v)),
-                writable=True,
-            )
-            axis_key = f"x{axis_idx + 1}_axis"
-            node.attribute_dict.set_virtual(
-                axis_key,
-                getter=lambda i=axis_idx: self.repo.get_axis_values(pid, i).tolist(),
-                setter=lambda v, i=axis_idx: self.repo.set_axis_values(pid, i, v),
-                writable=True,
-            )
-            axis_name_key = f"x{axis_idx + 1}_name"
-            node.attribute_dict.set_virtual(
-                axis_name_key,
-                getter=lambda i=axis_idx: self.repo.get_record(pid).axis_names.get(i, ""),
-                setter=lambda v, i=axis_idx: self.repo.set_axis_meta_field(pid, i, "axis_name", v),
-                writable=True,
-            )
-            axis_unit_key = f"x{axis_idx + 1}_unit"
-            node.attribute_dict.set_virtual(
-                axis_unit_key,
-                getter=lambda i=axis_idx: self.repo.get_record(pid).axis_units.get(i, ""),
-                setter=lambda v, i=axis_idx: self.repo.set_axis_meta_field(pid, i, "axis_unit", v),
-                writable=True,
-            )
+            self._cal_param_install_axis_slot(node, pid, axis_idx)
         node.attribute_dict.set_virtual(
             "data_set_name",
             getter=lambda: self._dataset_name_for_param(pid),

@@ -2,12 +2,14 @@
 
 Model-level FMU configuration on :class:`~synarius_core.model.ElementaryInstance` lives under the
 ``fmu`` attribute subtree (see :func:`~synarius_core.model.elementary_fmu_block`). Use the
-controller commands ``fmu inspect``, ``fmu bind``, and ``fmu reload`` for CLI workflows, or
+controller commands ``inspect <ref>`` and ``sync <ref>`` (see controller command protocol); the
+``fmu inspect <path>`` form remains for file-only inspection. ``fmu bind`` / ``fmu reload`` are not
+implemented (use ``sync <ref>``). Also use
 ``get`` / ``set`` / ``lsattr`` on ``fmu.*`` and ``pin.*`` paths.
 
 There is no separate ``fmu set`` verb: scalar and nested mapping fields use the generic ``set``
 command (for example ``set <ref>.fmu.path "…"``). List-valued ``fmu.variables`` is best updated
-via ``fmu bind`` / ``fmu reload`` or by replacing the whole list with a safely parsed literal.
+via ``sync <ref>`` or by replacing the whole list with a safely parsed literal.
 """
 
 from synarius_core.fmu.bind import (

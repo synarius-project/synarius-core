@@ -63,6 +63,8 @@ The controller parses ``<objectRef>.<attr.path>`` as:
 
 This implies **object references must not rely on unescaped dots** in the reference token; dots after the first segment belong to the attribute path.
 
+**Exception (normative, ``new``):** The ``new`` command is **not** subject to this split for its first argument. The token immediately following ``new`` is the **type designator** (for example ``FmuInstance`` or ``std.FmuCoSimulation``) and **MAY** contain ``.`` as part of a single argument; it does **not** introduce an attribute path. Only ``get`` / ``set`` / ``lsattr`` (and similar reference-based forms) use ``<objectRef>.<attr.path>`` as specified above.
+
 --------------------------------------------------------------------------------
 ``lsattr`` flattening
 --------------------------------------------------------------------------------

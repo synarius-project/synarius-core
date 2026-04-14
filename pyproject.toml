@@ -11,6 +11,7 @@ requires-python = ">=3.11,<3.15"
 dependencies = [
   "SQLAlchemy>=2.0.0",
   "duckdb>=1.5.1",
+  "immutables>=0.20",
 ]
 license = { file = "LICENSE" }
 authors = [{ name = "Synarius Contributors" }]
@@ -27,7 +28,7 @@ classifiers = [
 Homepage = "https://github.com/synarius-project"
 
 [project.scripts]
-synarius-core-cli = "synarius_core.cli.minimal_cli:main"
+synarius-cli = "synarius_core.cli.synarius_cli:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
@@ -44,13 +45,17 @@ include = ["synarius_core*"]
   "plugins/FmuRuntime/pluginDescription.xml",
   "plugins/FmuRuntime/fmu_runtime.py",
   "standard_library/libraryDescription.xml",
+  "standard_library/fmu_library_descriptor.json",
   "standard_library/components/**/*.xml",
   "standard_library/components/**/*.fmfl",
   "standard_library/components/**/*.svg",
 ]
 
 [project.optional-dependencies]
-dev = []
+dev = [
+  "pytest>=7.0",
+  "pytest-cov>=4.0",
+]
 simpy = [
   "simpy>=4.1",
 ]

@@ -1,3 +1,4 @@
+import shlex
 import sys
 import unittest
 from pathlib import Path
@@ -5,24 +6,24 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from synarius_core.controller import CommandError, MinimalController  # noqa: E402
+from synarius_core.controller import CommandError, SynariusController  # noqa: E402
 
 
 class ParametersModelTest(unittest.TestCase):
     def test_parameters_tree_exists_on_main_model(self) -> None:
-        ctl = MinimalController()
+        ctl = SynariusController()
         out = ctl.execute("ls") or ""
         self.assertIn("parameters", out)
 
     def test_cal_param_requires_dataset_subtree(self) -> None:
-        ctl = MinimalController()
+        ctl = SynariusController()
         ctl.execute("cd parameters/data_sets")
         _ = ctl.execute("new DataSet DsCtx")
         with self.assertRaises((CommandError, ValueError)):
             ctl.execute("new CalParam Outside category=VALUE")
 
     def test_dataset_owned_cal_param_and_shape_updates(self) -> None:
-        ctl = MinimalController()
+        ctl = SynariusController()
         ctl.execute("cd parameters/data_sets")
         ds = (
             ctl.execute('new DataSet DsA source_path="H:/Pfad/datei.dcm" source_format=dcm source_hash=abc123')
@@ -51,7 +52,7 @@ class ParametersModelTest(unittest.TestCase):
         self.assertEqual((ctl.execute(f"get {p}.x1_unit") or "").strip(), "rpm")
 
     def test_axis_must_be_strictly_monotonic(self) -> None:
-        ctl = MinimalController()
+        ctl = SynariusController()
         ctl.execute("cd parameters/data_sets")
         ds = (ctl.execute("new DataSet Dsm") or "").strip()
         ctl.execute(f"cd {ds}")
@@ -61,7 +62,7 @@ class ParametersModelTest(unittest.TestCase):
             ctl.execute(f"set {p}.x1_axis [0,0,1]")
 
     def test_ndarray_reads_do_not_bypass_guarded_writes(self) -> None:
-        ctl = MinimalController()
+        ctl = SynariusController()
         ctl.execute("cd parameters/data_sets")
         ds = (ctl.execute("new DataSet DsNd") or "").strip()
         ctl.execute(f"cd {ds}")
@@ -75,7 +76,7 @@ class ParametersModelTest(unittest.TestCase):
             arr[0, 0] = 42.0
 
     def test_print_cal_param_and_dataset(self) -> None:
-        ctl = MinimalController()
+        ctl = SynariusController()
         ctl.execute("cd parameters/data_sets")
         ds = (ctl.execute("new DataSet DsPrint") or "").strip()
         ctl.execute(f"cd {ds}")
@@ -90,7 +91,7 @@ class ParametersModelTest(unittest.TestCase):
         self.assertIn("PARAMETER_DATA_SET", ds_out)
 
     def test_cp_cal_param_ccp(self) -> None:
-        ctl = MinimalController()
+        ctl = SynariusController()
         ctl.execute("cd parameters/data_sets")
         ds_a = (ctl.execute("new DataSet DsCopyA") or "").strip()
         ds_b = (ctl.execute("new DataSet DsCopyB") or "").strip()
@@ -106,7 +107,7 @@ class ParametersModelTest(unittest.TestCase):
         self.assertEqual(float((ctl.execute(f"get {pb}.value") or "").strip()), 3.25)
 
     def test_cp_cal_param_preserves_dest_source_identifier(self) -> None:
-        ctl = MinimalController()
+        ctl = SynariusController()
         ctl.execute("cd parameters/data_sets")
         ds_a = (ctl.execute("new DataSet DsCpSidA") or "").strip()
         ds_b = (ctl.execute("new DataSet DsCpSidB") or "").strip()
@@ -136,7 +137,7 @@ class ParametersModelTest(unittest.TestCase):
     def test_del_parameter_data_set_cascades_model_and_duckdb(self) -> None:
         from uuid import UUID
 
-        ctl = MinimalController()
+        ctl = SynariusController()
         ctl.execute("cd parameters/data_sets")
         ds_h = (ctl.execute("new DataSet DsCascadeDel") or "").strip()
         ds_node = ctl._resolve_ref(ds_h)
@@ -161,7 +162,7 @@ class ParametersModelTest(unittest.TestCase):
     def test_num_params_clear_via_set_keeps_dataset(self) -> None:
         from uuid import UUID
 
-        ctl = MinimalController()
+        ctl = SynariusController()
         ctl.execute("cd parameters/data_sets")
         ds_h = (ctl.execute("new DataSet DsNumParams") or "").strip()
         ds_node = ctl._resolve_ref(ds_h)
@@ -183,6 +184,121 @@ class ParametersModelTest(unittest.TestCase):
             repo.get_record(pid)
         with self.assertRaises(CommandError):
             ctl.execute(f"set {ds_h}.num_params 2")
+
+    def test_dataset_display_order_ccp(self) -> None:
+        ctl = SynariusController()
+        ctl.execute("cd @main/parameters/data_sets")
+        ds_a = (ctl.execute("new DataSet OrdA") or "").strip()
+        ds_b = (ctl.execute("new DataSet OrdB") or "").strip()
+        id_a = ctl._resolve_ref(ds_a).id
+        id_b = ctl._resolve_ref(ds_b).id
+        self.assertIsNotNone(id_a)
+        self.assertIsNotNone(id_b)
+        rt = ctl.model.parameter_runtime()
+        rt.ensure_tree()
+        rev_literal = repr([str(id_b), str(id_a)])
+        ctl.execute(f"set @main/parameters.dataset_display_order {shlex.quote(rev_literal)}")
+        eff = rt.effective_main_column_dataset_ids()
+        self.assertEqual(eff[0], id_b)
+        self.assertEqual(eff[1], id_a)
+        ctl.execute("set @main/parameters.dataset_display_order None")
+        eff2 = rt.effective_main_column_dataset_ids()
+        self.assertEqual(eff2, rt.default_main_column_dataset_ids())
+
+    def test_dataset_display_order_rejects_duplicates(self) -> None:
+        ctl = SynariusController()
+        ctl.execute("cd @main/parameters/data_sets")
+        ds_a = (ctl.execute("new DataSet DupA") or "").strip()
+        id_a = ctl._resolve_ref(ds_a).id
+        dup_literal = repr([str(id_a), str(id_a)])
+        with self.assertRaises((CommandError, ValueError)):
+            ctl.execute(f"set @main/parameters.dataset_display_order {shlex.quote(dup_literal)}")
+
+    def test_target_column_data_set_id_ccp(self) -> None:
+        ctl = SynariusController()
+        ctl.execute("cd @main/parameters/data_sets")
+        ds = (ctl.execute("new DataSet TgtCol") or "").strip()
+        uid = ctl._resolve_ref(ds).id
+        bad = "00000000-0000-0000-0000-000000000001"
+        with self.assertRaises((CommandError, ValueError)):
+            ctl.execute(f"set @main/parameters.target_column_data_set_id {bad}")
+        ctl.execute(f"set @main/parameters.target_column_data_set_id {uid}")
+        got = (ctl.execute("get @main/parameters.target_column_data_set_id") or "").strip()
+        self.assertIn(str(uid), got)
+        ctl.execute("set @main/parameters.target_column_data_set_id None")
+        cleared = (ctl.execute("get @main/parameters.target_column_data_set_id") or "").strip()
+        self.assertEqual(cleared, "None")
+
+    def test_swap_ds_command_removed(self) -> None:
+        ctl = SynariusController()
+        with self.assertRaises(CommandError) as ctx:
+            ctl.execute("swap_ds a b")
+        self.assertIn("Unknown command", str(ctx.exception))
+
+    def test_import_dcm_option_with_dataset_cwd(self) -> None:
+        ctl = SynariusController()
+        p = Path(__file__).resolve().parent / "testdata" / "parameter_formats" / "dcm" / "dcm2_minimal_all_types_once.dcm"
+        self.assertTrue(p.is_file())
+        ctl.execute("cd @main/parameters/data_sets")
+        ds = (ctl.execute(f'new DataSet DsDcmCtx source_path="{p.as_posix()}" source_format=dcm') or "").strip()
+        ctl.execute(f"cd {ds}")
+        n = int((ctl.execute(f"import -dcm={shlex.quote(str(p))}") or "0").strip())
+        self.assertGreaterEqual(n, 1)
+
+    def test_import_dcm_option_with_explicit_ref(self) -> None:
+        ctl = SynariusController()
+        p = Path(__file__).resolve().parent / "testdata" / "parameter_formats" / "dcm" / "dcm2_minimal_all_types_once.dcm"
+        ctl.execute("cd @main/parameters/data_sets")
+        ds = (ctl.execute(f'new DataSet DsDcmRef source_path="{p.as_posix()}" source_format=dcm') or "").strip()
+        n = int((ctl.execute(f"import -dcm={shlex.quote(str(p))} {ds}") or "0").strip())
+        self.assertGreaterEqual(n, 1)
+
+    def test_import_dcm_positional_ref_before_option(self) -> None:
+        ctl = SynariusController()
+        p = Path(__file__).resolve().parent / "testdata" / "parameter_formats" / "dcm" / "dcm2_minimal_all_types_once.dcm"
+        ctl.execute("cd @main/parameters/data_sets")
+        ds = (ctl.execute(f'new DataSet DsDcmOrd source_path="{p.as_posix()}" source_format=dcm') or "").strip()
+        n = int((ctl.execute(f"import {ds} -dcm={shlex.quote(str(p))}") or "0").strip())
+        self.assertGreaterEqual(n, 1)
+
+    def test_import_dcm_requires_ref_when_not_on_dataset(self) -> None:
+        ctl = SynariusController()
+        p = Path(__file__).resolve().parent / "testdata" / "parameter_formats" / "dcm" / "dcm2_minimal_all_types_once.dcm"
+        ctl.execute("cd @main/parameters/data_sets")
+        _ = (ctl.execute(f'new DataSet DsLonely source_path="{p.as_posix()}" source_format=dcm') or "").strip()
+        with self.assertRaises(CommandError):
+            ctl.execute(f"import -dcm={shlex.quote(str(p))}")
+
+    def test_import_dcm_rejects_extra_ref_on_dataset_cwd(self) -> None:
+        ctl = SynariusController()
+        p = Path(__file__).resolve().parent / "testdata" / "parameter_formats" / "dcm" / "dcm2_minimal_all_types_once.dcm"
+        ctl.execute("cd @main/parameters/data_sets")
+        ds = (ctl.execute(f'new DataSet DsRedun source_path="{p.as_posix()}" source_format=dcm') or "").strip()
+        ctl.execute(f"cd {ds}")
+        with self.assertRaises(CommandError):
+            ctl.execute(f"import -dcm={shlex.quote(str(p))} {ds}")
+
+    def test_import_dcm_rejects_double_dcm_option(self) -> None:
+        ctl = SynariusController()
+        p = Path(__file__).resolve().parent / "testdata" / "parameter_formats" / "dcm" / "dcm2_minimal_all_types_once.dcm"
+        ctl.execute("cd @main/parameters/data_sets")
+        ds = (ctl.execute(f'new DataSet Ds2x source_path="{p.as_posix()}" source_format=dcm') or "").strip()
+        with self.assertRaises(CommandError):
+            ctl.execute(f"import -dcm={shlex.quote(str(p))} -dcm={shlex.quote(str(p))} {ds}")
+
+    def test_import_dcm_rejects_missing_option(self) -> None:
+        ctl = SynariusController()
+        with self.assertRaises(CommandError):
+            ctl.execute("import")
+
+    def test_import_dcm_missing_file_raises(self) -> None:
+        ctl = SynariusController()
+        ctl.execute("cd @main/parameters/data_sets")
+        ds = (ctl.execute("new DataSet DsNoFile source_format=dcm") or "").strip()
+        ctl.execute(f"cd {ds}")
+        with self.assertRaises(CommandError) as ctx:
+            ctl.execute("import -dcm=__no_such_dcm_file__.dcm")
+        self.assertIn("not found", str(ctx.exception).lower())
 
 
 if __name__ == "__main__":

@@ -33,8 +33,8 @@ The protocol favors a **small set of universal verbs** (for example ``cd``, ``ls
 Domain-specific behavior should be exposed primarily through **attributes** on model objects, including **virtual**
 attributes (see *Attribute Meta-Properties*): specialized semantics are implemented with getter/setter hooks so
 hosts keep using the same ``get`` / ``set`` forms instead of multiplying ad-hoc command verbs. Separate top-level
-commands are reserved when attribute access is a poor fit (for example ``swap_ds`` across two references) or for
-coarse workflow entry points such as ``load`` and ``import``.
+commands are reserved when attribute access is a poor fit (for example batch workflows that cannot be expressed
+as a single ``get``/``set`` on one object) or for coarse workflow entry points such as ``load`` and ``import``.
 
 Attribute Meta-Properties
 -------------------------
@@ -142,12 +142,20 @@ Top-Level Command Set
      - Model elements created/updated; undo/redo stacks cleared
    * - ``import``
      - Import calibration parameters from a file into a data set
-     - ``import dcm <DataSetRef> "<filePath>"``
+     - ``import -dcm="<filePath>" [<DataSetRef>]``
      - ``MODEL.CAL_PARAM`` nodes created; undo/redo stacks cleared
    * - ``write``
      - Export calibration parameters from the **active** parameter data set to a DCM file
      - ``write "<outputPath>"``
      - UTF-8 DCM written; does not clear undo/redo stacks
+   * - ``inspect``
+     - Type-dependent read-only diagnostics (no model mutation where applicable)
+     - ``inspect <ref>``
+     - Text/JSON output (see *Inspection and external sync* below)
+   * - ``sync``
+     - Type-dependent refresh from an external source (mutates the target where applicable)
+     - ``sync <ref> [from=<path> | path=<path>]``
+     - One-line status or error (see *Inspection and external sync* below)
 
 Object Referencing
 ------------------
@@ -183,6 +191,8 @@ Selection-targeted attribute set:
 ``new`` Type Catalogue
 ----------------------
 
+**Normative (type token):** The first token after ``new`` is the **construction type designator**. It **MAY** contain unescaped ``.`` characters (for example a namespaced library key such as ``std.FmuCoSimulation``). This token is **not** parsed as ``<objectRef>.<attr.path>``; it is a single command argument, distinct from the attribute-path rules that apply to ``get`` / ``set`` / ``lsattr`` on references (see :doc:`attribute_path_semantics`).
+
 Minimum supported construction types:
 
 .. list-table::
@@ -206,9 +216,9 @@ Minimum supported construction types:
    * - ``SignalFile``
      - Register/load a signal file
      - ``new SignalFile "<path>" [name="<name>"] [fileType="<type>"]``
-   * - ``FmuInstance``
-     - Create an FMU-backed elementary (default library ``type_key``)
-     - ``new FmuInstance <name> [<x> <y> [<size>]] fmu_path="…" [fmi_version=… fmu_type=… fmu_ports=… fmu_variables=… fmu_extra_meta=…]``
+   * - ``FmuInstance`` / ``std.FmuCoSimulation`` (and other registered type keys)
+     - Create an FMU-backed elementary (default library ``type_key`` from the FMU library descriptor when omitted)
+     - ``new FmuInstance <name> …`` or ``new std.FmuCoSimulation <name> …`` with the same ``fmu_path=`` / FMU kwargs as below
    * - ``Elementary`` (with ``fmu_path``)
      - FMU-backed block with explicit ``type_key``
      - ``new Elementary <name> [<x> <y> [<size>]] type_key=… fmu_path="…" [same FMU kwargs as ``FmuInstance``]``
@@ -239,19 +249,43 @@ FMU blocks and attributes
 
 There is no abbreviated form ``new FMU "<path>"``; use ``new FmuInstance`` or ``new Elementary`` with ``fmu_path=`` as above.
 
+**Optional ``fmu_ports`` / ``fmu_variables``:** If both are omitted, or both resolve to empty lists, the controller opens ``fmu_path`` immediately after constructing the node (before attach), resolves the file the same way as during ``load``/``execute_script`` (absolute path, or relative to the script directory when ``last_loaded_script_path`` is set), and applies the same merge as ``sync`` / inspect bind: ``pin.*`` is rebuilt from scalar variables (plus the library pin seed for ``type_key``), and ``fmu.variables`` is filled from ``modelDescription.xml``. Supplying a non-empty ``fmu_ports`` and/or ``fmu_variables`` list opts out of this step and preserves the previous explicit-list behaviour.
+
 FMU-backed elementaries store a subtree under ``fmu.*`` (path, guid, ``variables``, ``extra_meta``, …) and diagram connectivity under ``pin.*``. The generic commands ``get``, ``set``, and ``lsattr`` support multi-segment paths on mapping-valued attributes (for example ``get <ref>.fmu.path``, ``set <ref>.fmu.model_identifier Mini``, ``lsattr <ref>`` lists flattened rows such as ``fmu.path`` and ``pin.u.direction``).
 
-**List-valued ``fmu.variables``:** hierarchical ``get`` / ``set`` only traverses mappings, not list indices. Refresh the variable catalog from a ``.fmu`` file using ``fmu bind`` or ``fmu reload`` (below), or replace the entire list in one assignment using a safely parsed literal (same rules as ``fmu_variables=…`` on ``new``).
+**List-valued ``fmu.variables``:** hierarchical ``get`` / ``set`` only traverses mappings, not list indices. Refresh the variable catalog from a ``.fmu`` file using ``sync <ref>`` (below), or replace the entire list in one assignment using a safely parsed literal (same rules as ``fmu_variables=…`` on ``new``).
 
 **No separate ``fmu set`` verb:** use ``set <ref>.fmu.<segment>…`` for scalar or nested map fields.
 
-**Dedicated FMU commands** (optional helpers; not a substitute for ``get``/``set`` where those suffice):
+Inspection and external sync (canonical)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-- ``fmu inspect "<pathTo.fmu>"`` — parse FMI 2.0 ``modelDescription.xml`` inside the archive and print JSON (guid, model identifier, scalar variables, default experiment hints, …). FMI 3 is rejected until supported.
-- ``fmu bind <ref> [from="<pathTo.fmu>"]`` — re-read an FMU and merge metadata into the elementary's ``fmu`` subtree and rebuild ``pin`` from input/output variables (library pin seed from ``type_key`` is preserved first, then FMU ports override). If ``from=`` is omitted, the file at the current ``fmu.path`` is used. With ``from=``, ``fmu.path`` is updated to that file's resolved path.
-- ``fmu reload <ref> [path="<newPath>"]`` — optionally set ``fmu.path``, then run the same merge as ``fmu bind`` without changing the path when ``path=`` is omitted.
+Top-level ``inspect`` and ``sync`` dispatch on the **resolved target type**. Only types listed below are supported; other targets fail with a short, CLI-friendly error (no stack trace as user-facing content).
 
-These commands are not recorded on the undo stack (same category as a complex external edit).
+.. list-table::
+   :header-rows: 1
+   :widths: 22 39 39
+
+   * - Target type
+     - ``inspect <ref>``
+     - ``sync <ref> [from=<path> | path=<path>]``
+   * - ``ElementaryInstance`` with an ``fmu`` subtree (FMU block / ``FmuInstance``)
+     - Reads ``fmu.path`` on the target, parses the archive, prints JSON (FMI 2.0 ``modelDescription.xml`` subset: guid, model identifier, scalar variables, default experiment hints, …). Read-only. FMI 3 is rejected until supported.
+     - Re-reads an FMU and merges metadata into ``fmu`` and rebuilds ``pin`` from input/output variables (library pin seed from ``type_key`` is applied first, then FMU ports). Optional ``from=`` or ``path=`` selects the archive file (synonyms; if both are present they must be identical). If neither is given, the file at the current ``fmu.path`` is used. With an alternate path, ``fmu.path`` is updated to that file (same behaviour as the former ``fmu bind`` / ``fmu reload`` pair).
+   * - All other types
+     - *Not supported* (clear error).
+     - *Not supported* (clear error).
+
+These commands are not recorded on the undo stack (same category as the former ``fmu`` helpers).
+
+FMU file-only helper (compatibility)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- ``fmu inspect "<pathTo.fmu>"`` — inspect a **file path** without a model reference (equivalent to reading that path; there is no ``inspect`` form that takes a raw path).
+
+**Removed (normative):** ``fmu bind`` and ``fmu reload`` are **not** implemented; use ``sync <ref> [from=… | path=…]`` instead. Invoking them **SHALL** fail with a clear error that references this section.
+
+New work should use ``inspect <ref>`` and ``sync <ref>`` on model objects.
 
 Parameter data sets (``MODEL.PARAMETER_DATA_SET``)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -265,6 +299,26 @@ Each registered parameter data set exposes a virtual integer attribute ``num_par
 
 With ``cd`` into the data set node, the usual shorthand applies: ``get num_params`` and ``set num_params 0``.
 
+Parameters root (``MODEL.PARAMETERS``): comparison order and target column
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Virtual attributes on ``@main/parameters`` control ParaWiz-style **main-column order** and **which dataset is read
+for the right-hand target column** without exchanging DuckDB ``data_set_id`` values or reparenting calibration
+subtrees. They are runtime state on ``ParameterRuntime`` (same persistence category as ``active_dataset_name``).
+
+* ``dataset_display_order`` — ordered list of ``MODEL.PARAMETER_DATA_SET`` UUIDs (``set`` accepts a Python list
+  literal as one shell token, for example ``set @main/parameters.dataset_display_order "['<uuid-a>', '<uuid-b>']"``).
+  Each id must belong to a registered set under ``parameters/data_sets``. The list defines
+  left-to-right main comparison columns; any registered set omitted from the list is appended in the default
+  lexicographic order (init-file stem, then UUID). Clear with ``None``, ``""``, or ``[]`` to restore defaults.
+
+* ``target_column_data_set_id`` — optional UUID for the dataset whose parameters are shown in the ParaWiz target
+  column. When unset or set to the scratch dataset id, the scratch node is used (previous default).
+
+**Migration:** the ``swap_ds`` command (full repository / model identity exchange between two sets) was removed.
+Hosts should use ``set`` on ``dataset_display_order``, ``target_column_data_set_id``, and ``active_dataset_name``
+as appropriate instead of ``swap_ds``.
+
 ``set`` Forms
 -------------
 
@@ -274,9 +328,16 @@ With ``cd`` into the data set node, the usual shorthand applies: ``get num_param
 4. ``set -p @selection <attr> <delta>`` (add ``<delta>`` to the current value of ``<attr>`` on each selected object; option ``-p`` immediately after ``set``)
 5. ``set -p @selection position <dx> <dy>`` (add ``dx``/``dy`` to ``x``/``y`` on each selected locatable object)
 
+**Variable stimulation:** Each ``stim_kind`` (``constant``, ``ramp``, ``sine``, ``step``) has its **own**
+attribute names (for example ``stim_constant_value``, ``stim_ramp_offset`` / ``stim_ramp_slope``, …); switching
+``stim_kind`` only changes which attributes the run engine reads — other per-kind parameters stay on the variable.
+Legacy ``stim_p0``…``stim_p3`` are migrated once using the current ``stim_kind`` to interpret the old slots; see
+``synarius_core.dataflow_sim.stimulation``.
+
 Examples::
 
-   set @objects/variables/Speed.stim_const_val 10.0
+   set @objects/variables/Speed.stim_kind constant
+   set @objects/variables/Speed.stim_constant_value 10.0
    set LogLevel 1
    set @selection gain 2.5
    set -p @selection x 0.5
@@ -392,14 +453,14 @@ Output Semantics
 ~~~~~~~~~~~~~~~~
 
 - Output is plain text (may span multiple lines).
-- The minimal controller provides type-specific summaries for the following targets (non-exhaustive; other hosts may extend):
+- The Synarius controller (``SynariusController``) provides type-specific summaries for the following targets (non-exhaustive; other hosts may extend):
 
   * **Model root** (``ComplexInstance`` equal to the model root): name, child count, model type if set.
   * **Kenngrößen** (``MODEL.CAL_PARAM``): name, category (``VALUE``, ``CURVE``, ``MAP``, …), parameter and dataset IDs, dataset name, optional display name, comment, unit, conversion, source, numeric format and value semantics; for text parameters, the text value; otherwise a value summary (shape, min/max/mean for numeric arrays) and per-axis support point ranges where axes exist.
   * **Parameter dataset** (``MODEL.PARAMETER_DATA_SET``): name, id, optional source path/format/hash, direct child count in the model tree.
   * **Parameter data container** (``MODEL.PARAMETER_DATA_CONTAINER``): name, id, container type, child count.
   * **Parameter datasets folder** (``MODEL.PARAMETER_DATA_SETS``): entry count.
-  * **Model parameters area** (``MODEL.PARAMETERS``): active dataset name if set, direct child count.
+  * **Model parameters area** (``MODEL.PARAMETERS``): active dataset name if set; optional ``dataset_display_order`` and ``target_column_data_set_id`` when set; direct child count.
   * **Variable**, **BasicOperator**, **Connector**, **DataViewer**, **ElementaryInstance** (including ``fmu.path`` when present), generic **ComplexInstance**, **VariableMappingEntry**.
 - When no specialized formatter exists, implementations may return a minimal generic object summary (for example Python type and name).
 
@@ -446,7 +507,7 @@ Canonical form::
 Semantics
 ~~~~~~~~~
 
-- ``cal_param`` is the only supported subcommand in minimal implementations; other subcommands should be rejected with a clear usage error.
+- ``cal_param`` is the only supported subcommand in the reference core implementation; other subcommands should be rejected with a clear usage error.
 - **Numeric** parameters: destination row is updated via the same repository path as a full cal-param write (values, axis arrays, axis names/units, category and scalar metadata fields written by that path). The destination keeps its existing ``source_identifier`` (and, for text parameters, ``conversion_ref``) so the target does not inherit the source’s provenance keys.
 - **Text** parameters (ASCII category): destination ``parameters_all`` fields are updated from the source for content-bearing columns; ``conversion_ref`` and ``source_identifier`` on the destination row are left unchanged. Source and destination must both be text parameters (mixed text/numeric copy fails).
 - **Undo:** ``cp`` is **not** required to participate in the linear undo/redo stack (implementations may treat it as a direct repository mutation without an inverse command).
@@ -543,12 +604,22 @@ Error Behavior
 
 **Import** — canonical form::
 
-   import dcm <DataSetRef> "<filePath>"
+   import -dcm="<filePath>" [<DataSetRef>]
 
-- Resolves ``<DataSetRef>`` to a ``MODEL.PARAMETER_DATA_SET`` node, reads a UTF-8 DCM file, and creates ``MODEL.CAL_PARAM`` children plus repository rows for each supported block (see the parameters / DCM specifications for the supported subset).
-- Relative ``<filePath>`` resolution follows the same rules as other file-opening commands (for example relative to the directory of the script last opened with ``load`` when the path is not absolute).
-- On success, returns the number of imported parameters as a decimal string.
-- A successful ``import`` clears the undo and redo stacks (same class as ``load``).
+**Tokenization:** After the verb ``import``, the line is split with POSIX rules (e.g. :func:`shlex.split`). The DCM file is always selected by a single argument starting with ``-dcm=`` (path is the remainder of that token after the first ``=``). Any other arguments are **positional**; at most one positional is allowed, and it is interpreted as ``<DataSetRef>`` only when required (see below). Options and the optional reference may appear in any order (for example ``import MyDs -dcm="./a.dcm"``).
+
+**Target data set:**
+
+- If the shell cwd (``cd`` context) is a ``MODEL.PARAMETER_DATA_SET`` node, omit ``<DataSetRef>``; the import targets that data set. Supplying a positional reference in this case is an error (ambiguous / redundant).
+- Otherwise, exactly one ``<DataSetRef>`` positional is **required**; it must resolve to a ``MODEL.PARAMETER_DATA_SET`` node.
+
+The command reads a UTF-8 DCM file and creates ``MODEL.CAL_PARAM`` children plus repository rows for each supported block (see the parameters / DCM specifications for the supported subset).
+
+Relative ``<filePath>`` resolution follows the same rules as other file-opening commands (for example relative to the directory of the script last opened with ``load`` when the path is not absolute).
+
+On success, returns the number of imported parameters as a decimal string.
+
+A successful ``import`` clears the undo and redo stacks (same class as ``load``).
 
 **Write** — canonical form::
 
@@ -638,7 +709,7 @@ A) Command Summary
      - Rebuild model/submodel from protocol command stack
    * - ``import`` / ``write``
      - Parameters (DCM)
-     - Data set ref + path / active data set + path
+     - ``-dcm=`` path + optional data set ref (or cwd data set) / active data set + path
      - Bulk ingest or export of calibration parameters
 
 B) Construction Type Summary

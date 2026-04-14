@@ -12,6 +12,7 @@ from synarius_core.model import (  # noqa: E402
     BasicOperatorType,
     ComplexInstance,
     Connector,
+    DataViewer,
     DuplicateIdError,
     ElementaryInstance,
     IdFactory,
@@ -22,6 +23,7 @@ from synarius_core.model import (  # noqa: E402
     PinDirection,
     Signal,
     SignalContainer,
+    Size2D,
     elementary_fmu_block,
     VariableDatabase,
     VariableMappingEntry,
@@ -46,6 +48,18 @@ class IdFactoryTest(unittest.TestCase):
         factory.reserve(id_)
         with self.assertRaises(DuplicateIdError):
             factory.reserve(id_)
+
+
+class DataViewerDefaultPositionTest(unittest.TestCase):
+    def test_next_dataviewer_default_position_first_and_step(self) -> None:
+        model = Model.new("main")
+        self.assertEqual(model.next_dataviewer_default_position(), (20.0, 440.0))
+        dv = DataViewer(viewer_id=1, position=(0.0, 0.0), size=Size2D(1.0, 1.0))
+        model.attach(dv, parent=model.root, reserve_existing=False, remap_ids=False)
+        self.assertEqual(model.next_dataviewer_default_position(), (100.0, 440.0))
+        dv2 = DataViewer(viewer_id=2, position=(0.0, 0.0), size=Size2D(1.0, 1.0))
+        model.attach(dv2, parent=model.root, reserve_existing=False, remap_ids=False)
+        self.assertEqual(model.next_dataviewer_default_position(), (180.0, 440.0))
 
 
 class ModelLifecycleTest(unittest.TestCase):
@@ -378,6 +392,11 @@ class VariableMappingDatabaseTest(unittest.TestCase):
 
         model.set_variable_mapped_signal("speed", "speed")
         self.assertEqual(model.variable_mapped_signal("speed"), "speed")
+        self.assertEqual(entry.get("mapped_signal"), "speed")
+
+        entry.set("mapped_signal", "rpm_sig")
+        self.assertEqual(model.variable_mapped_signal("speed"), "rpm_sig")
+        self.assertEqual(entry.get("mapped_signal"), "rpm_sig")
 
         assert entry.id is not None
         model.delete(model.root, v.id)  # type: ignore[arg-type]

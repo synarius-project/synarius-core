@@ -5,7 +5,7 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parents[1] / "src"))
 
-from synarius_core.controller import CommandError, MinimalController  # noqa: E402
+from synarius_core.controller import CommandError, SynariusController  # noqa: E402
 from synarius_core.library import LibraryCatalog  # noqa: E402
 
 
@@ -18,7 +18,7 @@ class LibraryCatalogTest(unittest.TestCase):
         self.assertEqual(ids, {"Add", "Sub", "Mul", "Div"})
 
     def test_console_tree_navigation(self) -> None:
-        ctl = MinimalController()
+        ctl = SynariusController()
         self.assertEqual((ctl.execute("cd @libraries") or "").strip(), "@libraries")
 
         listing = ctl.execute("ls") or ""
@@ -39,7 +39,7 @@ class LibraryCatalogTest(unittest.TestCase):
         self.assertIn("LIB.ELEMENT", attrs)
 
     def test_new_rejected_under_libraries(self) -> None:
-        ctl = MinimalController()
+        ctl = SynariusController()
         ctl.execute("cd @libraries/std")
         with self.assertRaises(CommandError):
             ctl.execute("new Variable X")

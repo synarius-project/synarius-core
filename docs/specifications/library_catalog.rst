@@ -11,7 +11,7 @@ Library catalog (FMF discovery and console tree)
 Purpose
 --------------------------------------------------------------------------------
 
-``synarius_core.library.LibraryCatalog`` loads every FMF library found on disk at **host startup** (when a ``MinimalController`` is constructed). Parsed metadata is exposed through a **generic navigation tree** that uses the same console commands as the simulation model: ``ls``, ``cd``, ``lsattr``.
+``synarius_core.library.LibraryCatalog`` loads every FMF library found on disk at **host startup** (when a ``SynariusController`` is constructed). Parsed metadata is exposed through a **generic navigation tree** that uses the same console commands as the simulation model: ``ls``, ``cd``, ``lsattr``.
 
 This is separate from the ``Model`` aggregate: library nodes are **read-only** descriptors, not instantiable model objects.
 

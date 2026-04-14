@@ -31,7 +31,12 @@ from .scalar_equations import apply_scalar_equations_topo, eval_basic_operator
 from .step_exchange import RunStepExchange
 from .unrolled_loader import load_run_equations_from_source
 from .runtime_source_text import read_simple_run_engine_module_source
-from .stimulation import is_stimulated, stimulation_value
+from .stimulation import (
+    STIMULATION_DISPLAY_KEYS,
+    ensure_variable_stimulation_schema,
+    is_stimulated,
+    stimulation_value,
+)
 
 __all__ = [
     "CompiledDataflow",
@@ -48,6 +53,8 @@ __all__ = [
     "apply_scalar_equations_topo",
     "eval_basic_operator",
     "read_simple_run_engine_module_source",
+    "STIMULATION_DISPLAY_KEYS",
+    "ensure_variable_stimulation_schema",
     "is_stimulated",
     "stimulation_value",
     "iter_live_connectors",

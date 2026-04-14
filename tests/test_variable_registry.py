@@ -5,7 +5,7 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parents[1] / "src"))
 
-from synarius_core.controller import MinimalController  # noqa: E402
+from synarius_core.controller import SynariusController  # noqa: E402
 from synarius_core.model import Variable  # noqa: E402
 from synarius_core.variable_registry import VariableNameRegistry  # noqa: E402
 
@@ -42,7 +42,7 @@ class ModelVariableRegistryIntegrationTest(unittest.TestCase):
         return {name: count for name, count, _mapped in rows}
 
     def test_new_and_del_keep_counts(self) -> None:
-        ctl = MinimalController()
+        ctl = SynariusController()
         self.assertEqual(ctl.model.variable_registry.rows_ordered_by_name(), [])
         ctl.execute("new Variable Speed")
         ctl.execute("new Variable Speed")
@@ -55,7 +55,7 @@ class ModelVariableRegistryIntegrationTest(unittest.TestCase):
         self.assertEqual(rows2.get("Speed"), 1)
 
     def test_rebuild_matches_tree(self) -> None:
-        ctl = MinimalController()
+        ctl = SynariusController()
         ctl.execute("new Variable A")
         ctl.execute("new Variable B")
         ctl.model.variable_registry.clear()

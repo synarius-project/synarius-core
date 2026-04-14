@@ -175,6 +175,21 @@ def remove_axis_aligned_spikes(
     return out
 
 
+def _orthogonal_polyline_vertices_through_bends(
+    sx: float, sy: float, bends: list[float]
+) -> tuple[list[tuple[float, float]], float, float]:
+    pts: list[tuple[float, float]] = [(float(sx), float(sy))]
+    px, py = float(sx), float(sy)
+    for i, v in enumerate(bends):
+        fv = float(v)
+        if i % 2 == 0:
+            px, py = fv, py
+        else:
+            px, py = px, fv
+        pts.append((px, py))
+    return pts, px, py
+
+
 def orthogonal_polyline(
     sx: float, sy: float, tx: float, ty: float, bends: list[float]
 ) -> list[tuple[float, float]]:
@@ -188,35 +203,23 @@ def orthogonal_polyline(
     if not bends:
         return [(sx, sy), (tx, ty)]
 
-    pts: list[tuple[float, float]] = [(float(sx), float(sy))]
-    px, py = float(sx), float(sy)
-    for i, v in enumerate(bends):
-        fv = float(v)
-        if i % 2 == 0:
-            px, py = fv, py
-        else:
-            px, py = px, fv
-        pts.append((px, py))
-
-    px, py = pts[-1]
+    pts, px, py = _orthogonal_polyline_vertices_through_bends(sx, sy, bends)
     tx, ty = float(tx), float(ty)
-    # Pin / bend vs target: sub-pixel drift on x or y — snap to target without detour.
-    if abs(py - ty) <= _EPS_POLY and abs(px - tx) <= 1.0:
+
+    def finish_snap_pin_to_target() -> list[tuple[float, float]]:
         pts[-1] = (tx, ty)
         return _dedupe_consecutive_points(pts)
-    # Same column as target pin: detour is only needed when the knee is clearly off the
-    # target row. Sub-pixel / sub-grid y drift (or small pin vs knee mismatch) must not
-    # add the sideways detour — that shows up as an extra vertical "tail" in the editor.
-    if abs(px - tx) < _EPS and abs(py - ty) <= _COLLINEAR_DY:
+
+    def finish_same_column_snap() -> list[tuple[float, float]]:
         pts[-1] = (tx, ty)
         return _dedupe_consecutive_points(pts)
-    # Last segment into target is horizontal; snap small Δy to target row (see _COLLINEAR_DY).
-    if abs(py - ty) <= _COLLINEAR_DY:
+
+    def finish_horizontal_last_with_dy_snap() -> list[tuple[float, float]]:
         pts[-1] = (px, ty)
         pts.append((tx, ty))
         return _dedupe_consecutive_points(pts)
-    if abs(px - tx) < _EPS:
-        # Same x as target before final approach: step sideways then H into pin (no zero-length stub).
+
+    def finish_same_x_detour() -> list[tuple[float, float]]:
         away = max(_DEFAULT_DETOUR, abs(ty - py) * 0.08 + 12.0)
         if abs(sx - tx) > _EPS:
             sign = 1.0 if sx < tx else -1.0
@@ -226,10 +229,28 @@ def orthogonal_polyline(
         pts.append((ox, py))
         pts.append((ox, ty))
         pts.append((tx, ty))
-    else:
+        return _dedupe_consecutive_points(pts)
+
+    def finish_default_corner() -> list[tuple[float, float]]:
         pts.append((px, ty))
         pts.append((tx, ty))
-    return _dedupe_consecutive_points(pts)
+        return _dedupe_consecutive_points(pts)
+
+    # Pin / bend vs target: sub-pixel drift on x or y — snap to target without detour.
+    if abs(py - ty) <= _EPS_POLY and abs(px - tx) <= 1.0:
+        return finish_snap_pin_to_target()
+    # Same column as target pin: detour is only needed when the knee is clearly off the
+    # target row. Sub-pixel / sub-grid y drift (or small pin vs knee mismatch) must not
+    # add the sideways detour — that shows up as an extra vertical "tail" in the editor.
+    if abs(px - tx) < _EPS and abs(py - ty) <= _COLLINEAR_DY:
+        return finish_same_column_snap()
+    # Last segment into target is horizontal; snap small Δy to target row (see _COLLINEAR_DY).
+    if abs(py - ty) <= _COLLINEAR_DY:
+        return finish_horizontal_last_with_dy_snap()
+    if abs(px - tx) < _EPS:
+        # Same x as target before final approach: step sideways then H into pin (no zero-length stub).
+        return finish_same_x_detour()
+    return finish_default_corner()
 
 
 def polyline_for_endpoints(

@@ -82,6 +82,336 @@ def _append_source_identifier(existing: str, key: str, value: str) -> str:
     return f"{existing};{part}"
 
 
+def _dcm_parse_festwert(lines: list[str], i: int, parts: list[str]) -> tuple[int, DcmImportSpec]:
+    if len(parts) < 2:
+        raise ValueError("FESTWERT requires a name")
+    name = parts[1]
+    i += 1
+    wval: float | None = None
+    display_name = ""
+    unit = ""
+    source_identifier = ""
+    while i < len(lines):
+        tp = _tokens(lines[i])
+        if tp and tp[0].upper() == "END":
+            i += 1
+            break
+        if tp and tp[0].upper() == "WERT":
+            fv = _floats_after_keyword(tp, "WERT")
+            if fv.size != 1:
+                raise ValueError(f"WERT needs a value in {name!r}")
+            wval = float(fv[0])
+        elif tp and tp[0].upper() == "LANGNAME":
+            display_name = _str_after_keyword(tp, "LANGNAME", context=name)
+        elif tp and tp[0].upper() == "EINHEIT":
+            unit = _str_after_keyword(tp, "EINHEIT", context=name)
+        elif tp and tp[0].upper() == "VAR":
+            source_identifier = _append_source_identifier(
+                source_identifier,
+                "VAR",
+                _str_after_keyword(tp, "VAR", context=name),
+            )
+        elif tp and tp[0].upper() == "FUNKTION":
+            source_identifier = _append_source_identifier(
+                source_identifier,
+                "FUNKTION",
+                _str_after_keyword(tp, "FUNKTION", context=name),
+            )
+        i += 1
+    if wval is None:
+        raise ValueError(f"FESTWERT {name!r} missing WERT")
+    spec = DcmImportSpec(
+        name,
+        "VALUE",
+        np.array(wval, dtype=np.float64),
+        display_name=display_name,
+        unit=unit,
+        source_identifier=source_identifier,
+    )
+    return i, spec
+
+
+def _dcm_parse_festwerteblock(lines: list[str], i: int, parts: list[str]) -> tuple[int, DcmImportSpec]:
+    if len(parts) < 3:
+        raise ValueError("FESTWERTEBLOCK requires <name> <count> or <count_x> @ <count_y>")
+    name = parts[1]
+    nx = int(parts[2])
+    ny = 1
+    if len(parts) >= 5 and parts[3] == "@":
+        ny = int(parts[4])
+    i += 1
+    block_rows: list[list[float]] = []
+    display_name = ""
+    unit = ""
+    source_identifier = ""
+    while i < len(lines):
+        tp = _tokens(lines[i])
+        if tp and tp[0].upper() == "END":
+            i += 1
+            break
+        if tp and tp[0].upper() == "WERT":
+            bv = _floats_after_keyword(tp, "WERT")
+            block_rows.append(bv.tolist())
+        elif tp and tp[0].upper() == "LANGNAME":
+            display_name = _str_after_keyword(tp, "LANGNAME", context=name)
+        elif tp and tp[0].upper() == "EINHEIT":
+            unit = _str_after_keyword(tp, "EINHEIT", context=name)
+        elif tp and tp[0].upper() == "VAR":
+            source_identifier = _append_source_identifier(
+                source_identifier,
+                "VAR",
+                _str_after_keyword(tp, "VAR", context=name),
+            )
+        elif tp and tp[0].upper() == "FUNKTION":
+            source_identifier = _append_source_identifier(
+                source_identifier,
+                "FUNKTION",
+                _str_after_keyword(tp, "FUNKTION", context=name),
+            )
+        i += 1
+    if ny <= 1:
+        if len(block_rows) != 1:
+            raise ValueError(f"FESTWERTEBLOCK {name!r} expected exactly one WERT row, got {len(block_rows)}")
+        block_vals = block_rows[0]
+        if len(block_vals) != nx:
+            raise ValueError(f"FESTWERTEBLOCK {name!r} expected {nx} values, got {block_vals!r}")
+        arr = np.asarray(block_vals, dtype=np.float64).reshape(nx)
+        category = "ARRAY"
+    else:
+        if len(block_rows) != ny:
+            raise ValueError(
+                f"FESTWERTEBLOCK {name!r} expected {ny} WERT rows for matrix, got {len(block_rows)}"
+            )
+        for row in block_rows:
+            if len(row) != nx:
+                raise ValueError(f"FESTWERTEBLOCK {name!r} matrix row length {len(row)} != {nx}")
+        arr = np.asarray(block_rows, dtype=np.float64).reshape(ny, nx).T
+        category = "MATRIX"
+    spec = DcmImportSpec(
+        name,
+        category,
+        arr,
+        display_name=display_name,
+        unit=unit,
+        source_identifier=source_identifier,
+    )
+    return i, spec
+
+
+def _dcm_parse_kennlinie(lines: list[str], i: int, parts: list[str]) -> tuple[int, DcmImportSpec]:
+    if len(parts) < 3:
+        raise ValueError("KENNLINIE requires <name> <count>")
+    name = parts[1]
+    nx = int(parts[2])
+    i += 1
+    stx: np.ndarray | None = None
+    wrow: np.ndarray | None = None
+    display_name = ""
+    unit = ""
+    source_identifier = ""
+    axis_names: dict[int, str] = {}
+    axis_units: dict[int, str] = {}
+    while i < len(lines):
+        tp = _tokens(lines[i])
+        if tp and tp[0].upper() == "END":
+            i += 1
+            break
+        if tp and tp[0].upper() == "ST/X":
+            stx = _floats_after_keyword(tp, "ST/X")
+        elif tp and tp[0].upper() == "WERT":
+            wrow = _floats_after_keyword(tp, "WERT")
+        elif tp and tp[0].upper() == "LANGNAME":
+            display_name = _str_after_keyword(tp, "LANGNAME", context=name)
+        elif tp and tp[0].upper() == "EINHEIT":
+            unit = _str_after_keyword(tp, "EINHEIT", context=name)
+        elif tp and tp[0].upper() == "LANGNAME_X":
+            axis_names[0] = _str_after_keyword(tp, "LANGNAME_X", context=name)
+        elif tp and tp[0].upper() == "EINHEIT_X":
+            axis_units[0] = _str_after_keyword(tp, "EINHEIT_X", context=name)
+        elif tp and tp[0].upper() == "VAR":
+            source_identifier = _append_source_identifier(
+                source_identifier,
+                "VAR",
+                _str_after_keyword(tp, "VAR", context=name),
+            )
+        elif tp and tp[0].upper() == "FUNKTION":
+            source_identifier = _append_source_identifier(
+                source_identifier,
+                "FUNKTION",
+                _str_after_keyword(tp, "FUNKTION", context=name),
+            )
+        i += 1
+    if stx is None or wrow is None or int(stx.size) != nx or int(wrow.size) != nx:
+        raise ValueError(f"KENNLINIE {name!r} invalid ST/X or WERT (expected {nx})")
+    arr = np.asarray(wrow, dtype=np.float64).reshape(nx)
+    ax = np.asarray(stx, dtype=np.float64).reshape(-1)
+    spec = DcmImportSpec(
+        name,
+        "CURVE",
+        arr,
+        {0: ax},
+        display_name=display_name,
+        unit=unit,
+        source_identifier=source_identifier,
+        axis_names=axis_names,
+        axis_units=axis_units,
+    )
+    return i, spec
+
+
+def _dcm_parse_kennfeld(lines: list[str], i: int, parts: list[str]) -> tuple[int, DcmImportSpec]:
+    if len(parts) < 4:
+        raise ValueError("KENNFELD requires <name> <nx> <ny>")
+    name = parts[1]
+    nx = int(parts[2])
+    ny = int(parts[3])
+    i += 1
+    stx: np.ndarray | None = None
+    sty_order: list[float] = []
+    rows: list[np.ndarray] = []
+    display_name = ""
+    unit = ""
+    source_identifier = ""
+    axis_names: dict[int, str] = {}
+    axis_units: dict[int, str] = {}
+    while i < len(lines):
+        tp = _tokens(lines[i])
+        if tp and tp[0].upper() == "END":
+            i += 1
+            break
+        if tp and tp[0].upper() == "ST/X":
+            stx = _floats_after_keyword(tp, "ST/X")
+        elif tp and tp[0].upper() == "ST/Y":
+            ys = _floats_after_keyword(tp, "ST/Y")
+            if ys.size != 1:
+                raise ValueError(f"KENNFELD {name!r} ST/Y must be one float per row")
+            sty_order.append(float(ys[0]))
+            i += 1
+            if i >= len(lines):
+                raise ValueError(f"KENNFELD {name!r} missing WERT after ST/Y")
+            wp = _tokens(lines[i])
+            wvals = _floats_after_keyword(wp, "WERT")
+            if int(wvals.size) != nx:
+                raise ValueError(f"KENNFELD {name!r} WERT row length {int(wvals.size)} != nx {nx}")
+            rows.append(wvals)
+        elif tp and tp[0].upper() == "LANGNAME":
+            display_name = _str_after_keyword(tp, "LANGNAME", context=name)
+        elif tp and tp[0].upper() == "EINHEIT":
+            unit = _str_after_keyword(tp, "EINHEIT", context=name)
+        elif tp and tp[0].upper() == "LANGNAME_X":
+            axis_names[0] = _str_after_keyword(tp, "LANGNAME_X", context=name)
+        elif tp and tp[0].upper() == "LANGNAME_Y":
+            axis_names[1] = _str_after_keyword(tp, "LANGNAME_Y", context=name)
+        elif tp and tp[0].upper() == "EINHEIT_X":
+            axis_units[0] = _str_after_keyword(tp, "EINHEIT_X", context=name)
+        elif tp and tp[0].upper() == "EINHEIT_Y":
+            axis_units[1] = _str_after_keyword(tp, "EINHEIT_Y", context=name)
+        elif tp and tp[0].upper() == "VAR":
+            source_identifier = _append_source_identifier(
+                source_identifier,
+                "VAR",
+                _str_after_keyword(tp, "VAR", context=name),
+            )
+        elif tp and tp[0].upper() == "FUNKTION":
+            source_identifier = _append_source_identifier(
+                source_identifier,
+                "FUNKTION",
+                _str_after_keyword(tp, "FUNKTION", context=name),
+            )
+        i += 1
+    if stx is None or int(stx.size) != nx or len(rows) != ny:
+        raise ValueError(f"KENNFELD {name!r} incomplete (nx={nx} ny={ny})")
+    mat = np.asarray(rows, dtype=np.float64).T
+    ax0 = np.asarray(stx, dtype=np.float64).reshape(-1)
+    ax1 = np.asarray(sty_order, dtype=np.float64).reshape(-1)
+    spec = DcmImportSpec(
+        name,
+        "MAP",
+        mat,
+        {0: ax0, 1: ax1},
+        display_name=display_name,
+        unit=unit,
+        source_identifier=source_identifier,
+        axis_names=axis_names,
+        axis_units=axis_units,
+    )
+    return i, spec
+
+
+def _dcm_parse_stuetzstellenverteilung(lines: list[str], i: int, parts: list[str]) -> tuple[int, DcmImportSpec]:
+    if len(parts) < 3:
+        raise ValueError("STUETZSTELLENVERTEILUNG requires <name> <count>")
+    name = parts[1]
+    nx = int(parts[2])
+    i += 1
+    stx2: np.ndarray | None = None
+    display_name = ""
+    unit = ""
+    source_identifier = ""
+    axis_names: dict[int, str] = {}
+    axis_units: dict[int, str] = {}
+    while i < len(lines):
+        tp = _tokens(lines[i])
+        if tp and tp[0].upper() == "END":
+            i += 1
+            break
+        if tp and tp[0].upper() == "ST/X":
+            stx2 = _floats_after_keyword(tp, "ST/X")
+        elif tp and tp[0].upper() == "LANGNAME":
+            display_name = _str_after_keyword(tp, "LANGNAME", context=name)
+        elif tp and tp[0].upper() == "EINHEIT":
+            unit = _str_after_keyword(tp, "EINHEIT", context=name)
+        elif tp and tp[0].upper() == "LANGNAME_X":
+            axis_names[0] = _str_after_keyword(tp, "LANGNAME_X", context=name)
+        elif tp and tp[0].upper() == "EINHEIT_X":
+            axis_units[0] = _str_after_keyword(tp, "EINHEIT_X", context=name)
+        elif tp and tp[0].upper() == "VAR":
+            source_identifier = _append_source_identifier(
+                source_identifier,
+                "VAR",
+                _str_after_keyword(tp, "VAR", context=name),
+            )
+        elif tp and tp[0].upper() == "FUNKTION":
+            source_identifier = _append_source_identifier(
+                source_identifier,
+                "FUNKTION",
+                _str_after_keyword(tp, "FUNKTION", context=name),
+            )
+        i += 1
+    if stx2 is None or int(stx2.size) != nx:
+        raise ValueError(f"STUETZSTELLENVERTEILUNG {name!r} invalid ST/X")
+    arr = np.asarray(stx2, dtype=np.float64).reshape(nx)
+    spec = DcmImportSpec(
+        name,
+        "NODE_ARRAY",
+        arr,
+        display_name=display_name,
+        unit=unit,
+        source_identifier=source_identifier,
+        axis_names=axis_names,
+        axis_units=axis_units,
+    )
+    return i, spec
+
+
+def _parse_dcm_specs_header_skip(kw: str) -> bool:
+    return kw in ("KONSERVIERUNG_FORMAT", "END")
+
+
+def _parse_dcm_specs_parse_block(lines: list[str], i: int, parts: list[str], kw: str) -> tuple[int, DcmImportSpec]:
+    if kw == "FESTWERT":
+        return _dcm_parse_festwert(lines, i, parts)
+    if kw == "FESTWERTEBLOCK":
+        return _dcm_parse_festwerteblock(lines, i, parts)
+    if kw == "KENNLINIE":
+        return _dcm_parse_kennlinie(lines, i, parts)
+    if kw == "KENNFELD":
+        return _dcm_parse_kennfeld(lines, i, parts)
+    if kw == "STUETZSTELLENVERTEILUNG":
+        return _dcm_parse_stuetzstellenverteilung(lines, i, parts)
+    raise ValueError(f"Unsupported or unknown DCM keyword {kw!r} at line {lines[i]!r}")
+
+
 def parse_dcm_specs(
     text: str,
     *,
@@ -101,336 +431,81 @@ def parse_dcm_specs(
         if cooperative_hook is not None and cooperative_every > 0 and _parse_tick % cooperative_every == 0:
             cooperative_hook()
         kw = parts[0].upper()
-        if kw == "KONSERVIERUNG_FORMAT":
+        if _parse_dcm_specs_header_skip(kw):
             i += 1
             continue
-        if kw == "END":
-            i += 1
-            continue
-
-        if kw == "FESTWERT":
-            if len(parts) < 2:
-                raise ValueError("FESTWERT requires a name")
-            name = parts[1]
-            i += 1
-            wval: float | None = None
-            display_name = ""
-            unit = ""
-            source_identifier = ""
-            while i < len(lines):
-                tp = _tokens(lines[i])
-                if tp and tp[0].upper() == "END":
-                    i += 1
-                    break
-                if tp and tp[0].upper() == "WERT":
-                    fv = _floats_after_keyword(tp, "WERT")
-                    if fv.size != 1:
-                        raise ValueError(f"WERT needs a value in {name!r}")
-                    wval = float(fv[0])
-                elif tp and tp[0].upper() == "LANGNAME":
-                    display_name = _str_after_keyword(tp, "LANGNAME", context=name)
-                elif tp and tp[0].upper() == "EINHEIT":
-                    unit = _str_after_keyword(tp, "EINHEIT", context=name)
-                elif tp and tp[0].upper() == "VAR":
-                    source_identifier = _append_source_identifier(
-                        source_identifier,
-                        "VAR",
-                        _str_after_keyword(tp, "VAR", context=name),
-                    )
-                elif tp and tp[0].upper() == "FUNKTION":
-                    source_identifier = _append_source_identifier(
-                        source_identifier,
-                        "FUNKTION",
-                        _str_after_keyword(tp, "FUNKTION", context=name),
-                    )
-                i += 1
-            if wval is None:
-                raise ValueError(f"FESTWERT {name!r} missing WERT")
-            specs.append(
-                DcmImportSpec(
-                    name,
-                    "VALUE",
-                    np.array(wval, dtype=np.float64),
-                    display_name=display_name,
-                    unit=unit,
-                    source_identifier=source_identifier,
-                )
-            )
-            continue
-
-        if kw == "FESTWERTEBLOCK":
-            if len(parts) < 3:
-                raise ValueError("FESTWERTEBLOCK requires <name> <count> or <count_x> @ <count_y>")
-            name = parts[1]
-            nx = int(parts[2])
-            ny = 1
-            if len(parts) >= 5 and parts[3] == "@":
-                ny = int(parts[4])
-            i += 1
-            block_rows: list[list[float]] = []
-            display_name = ""
-            unit = ""
-            source_identifier = ""
-            while i < len(lines):
-                tp = _tokens(lines[i])
-                if tp and tp[0].upper() == "END":
-                    i += 1
-                    break
-                if tp and tp[0].upper() == "WERT":
-                    bv = _floats_after_keyword(tp, "WERT")
-                    block_rows.append(bv.tolist())
-                elif tp and tp[0].upper() == "LANGNAME":
-                    display_name = _str_after_keyword(tp, "LANGNAME", context=name)
-                elif tp and tp[0].upper() == "EINHEIT":
-                    unit = _str_after_keyword(tp, "EINHEIT", context=name)
-                elif tp and tp[0].upper() == "VAR":
-                    source_identifier = _append_source_identifier(
-                        source_identifier,
-                        "VAR",
-                        _str_after_keyword(tp, "VAR", context=name),
-                    )
-                elif tp and tp[0].upper() == "FUNKTION":
-                    source_identifier = _append_source_identifier(
-                        source_identifier,
-                        "FUNKTION",
-                        _str_after_keyword(tp, "FUNKTION", context=name),
-                    )
-                i += 1
-            if ny <= 1:
-                if len(block_rows) != 1:
-                    raise ValueError(f"FESTWERTEBLOCK {name!r} expected exactly one WERT row, got {len(block_rows)}")
-                block_vals = block_rows[0]
-                if len(block_vals) != nx:
-                    raise ValueError(f"FESTWERTEBLOCK {name!r} expected {nx} values, got {block_vals!r}")
-                arr = np.asarray(block_vals, dtype=np.float64).reshape(nx)
-                category = "ARRAY"
-            else:
-                if len(block_rows) != ny:
-                    raise ValueError(
-                        f"FESTWERTEBLOCK {name!r} expected {ny} WERT rows for matrix, got {len(block_rows)}"
-                    )
-                for row in block_rows:
-                    if len(row) != nx:
-                        raise ValueError(f"FESTWERTEBLOCK {name!r} matrix row length {len(row)} != {nx}")
-                # ASAM DCM2 matrix form: "<nx> @ <ny>" and ny WERT-rows with nx values each.
-                # Keep orientation aligned with KENNFELD: values[x, y] => shape (nx, ny).
-                arr = np.asarray(block_rows, dtype=np.float64).reshape(ny, nx).T
-                category = "MATRIX"
-            specs.append(
-                DcmImportSpec(
-                    name,
-                    category,
-                    arr,
-                    display_name=display_name,
-                    unit=unit,
-                    source_identifier=source_identifier,
-                )
-            )
-            continue
-
-        if kw == "KENNLINIE":
-            if len(parts) < 3:
-                raise ValueError("KENNLINIE requires <name> <count>")
-            name = parts[1]
-            nx = int(parts[2])
-            i += 1
-            stx: list[float] | None = None
-            wrow: list[float] | None = None
-            display_name = ""
-            unit = ""
-            source_identifier = ""
-            axis_names: dict[int, str] = {}
-            axis_units: dict[int, str] = {}
-            while i < len(lines):
-                tp = _tokens(lines[i])
-                if tp and tp[0].upper() == "END":
-                    i += 1
-                    break
-                if tp and tp[0].upper() == "ST/X":
-                    stx = _floats_after_keyword(tp, "ST/X")
-                elif tp and tp[0].upper() == "WERT":
-                    wrow = _floats_after_keyword(tp, "WERT")
-                elif tp and tp[0].upper() == "LANGNAME":
-                    display_name = _str_after_keyword(tp, "LANGNAME", context=name)
-                elif tp and tp[0].upper() == "EINHEIT":
-                    unit = _str_after_keyword(tp, "EINHEIT", context=name)
-                elif tp and tp[0].upper() == "LANGNAME_X":
-                    axis_names[0] = _str_after_keyword(tp, "LANGNAME_X", context=name)
-                elif tp and tp[0].upper() == "EINHEIT_X":
-                    axis_units[0] = _str_after_keyword(tp, "EINHEIT_X", context=name)
-                elif tp and tp[0].upper() == "VAR":
-                    source_identifier = _append_source_identifier(
-                        source_identifier,
-                        "VAR",
-                        _str_after_keyword(tp, "VAR", context=name),
-                    )
-                elif tp and tp[0].upper() == "FUNKTION":
-                    source_identifier = _append_source_identifier(
-                        source_identifier,
-                        "FUNKTION",
-                        _str_after_keyword(tp, "FUNKTION", context=name),
-                    )
-                i += 1
-            if stx is None or wrow is None or int(stx.size) != nx or int(wrow.size) != nx:
-                raise ValueError(f"KENNLINIE {name!r} invalid ST/X or WERT (expected {nx})")
-            arr = np.asarray(wrow, dtype=np.float64).reshape(nx)
-            ax = np.asarray(stx, dtype=np.float64).reshape(-1)
-            specs.append(
-                DcmImportSpec(
-                    name,
-                    "CURVE",
-                    arr,
-                    {0: ax},
-                    display_name=display_name,
-                    unit=unit,
-                    source_identifier=source_identifier,
-                    axis_names=axis_names,
-                    axis_units=axis_units,
-                )
-            )
-            continue
-
-        if kw == "KENNFELD":
-            if len(parts) < 4:
-                raise ValueError("KENNFELD requires <name> <nx> <ny>")
-            name = parts[1]
-            nx = int(parts[2])
-            ny = int(parts[3])
-            i += 1
-            stx: list[float] | None = None
-            sty_order: list[float] = []
-            rows: list[list[float]] = []
-            display_name = ""
-            unit = ""
-            source_identifier = ""
-            axis_names: dict[int, str] = {}
-            axis_units: dict[int, str] = {}
-            while i < len(lines):
-                tp = _tokens(lines[i])
-                if tp and tp[0].upper() == "END":
-                    i += 1
-                    break
-                if tp and tp[0].upper() == "ST/X":
-                    stx = _floats_after_keyword(tp, "ST/X")
-                elif tp and tp[0].upper() == "ST/Y":
-                    ys = _floats_after_keyword(tp, "ST/Y")
-                    if ys.size != 1:
-                        raise ValueError(f"KENNFELD {name!r} ST/Y must be one float per row")
-                    sty_order.append(float(ys[0]))
-                    i += 1
-                    if i >= len(lines):
-                        raise ValueError(f"KENNFELD {name!r} missing WERT after ST/Y")
-                    wp = _tokens(lines[i])
-                    wvals = _floats_after_keyword(wp, "WERT")
-                    if int(wvals.size) != nx:
-                        raise ValueError(f"KENNFELD {name!r} WERT row length {int(wvals.size)} != nx {nx}")
-                    rows.append(wvals)
-                elif tp and tp[0].upper() == "LANGNAME":
-                    display_name = _str_after_keyword(tp, "LANGNAME", context=name)
-                elif tp and tp[0].upper() == "EINHEIT":
-                    unit = _str_after_keyword(tp, "EINHEIT", context=name)
-                elif tp and tp[0].upper() == "LANGNAME_X":
-                    axis_names[0] = _str_after_keyword(tp, "LANGNAME_X", context=name)
-                elif tp and tp[0].upper() == "LANGNAME_Y":
-                    axis_names[1] = _str_after_keyword(tp, "LANGNAME_Y", context=name)
-                elif tp and tp[0].upper() == "EINHEIT_X":
-                    axis_units[0] = _str_after_keyword(tp, "EINHEIT_X", context=name)
-                elif tp and tp[0].upper() == "EINHEIT_Y":
-                    axis_units[1] = _str_after_keyword(tp, "EINHEIT_Y", context=name)
-                elif tp and tp[0].upper() == "VAR":
-                    source_identifier = _append_source_identifier(
-                        source_identifier,
-                        "VAR",
-                        _str_after_keyword(tp, "VAR", context=name),
-                    )
-                elif tp and tp[0].upper() == "FUNKTION":
-                    source_identifier = _append_source_identifier(
-                        source_identifier,
-                        "FUNKTION",
-                        _str_after_keyword(tp, "FUNKTION", context=name),
-                    )
-                i += 1
-            if stx is None or int(stx.size) != nx or len(rows) != ny:
-                raise ValueError(f"KENNFELD {name!r} incomplete (nx={nx} ny={ny})")
-            # values[xi, yi]: first index axis0 (X / ST/X), second axis1 (Y / ST/Y)
-            mat = np.asarray(rows, dtype=np.float64).T
-            ax0 = np.asarray(stx, dtype=np.float64).reshape(-1)
-            ax1 = np.asarray(sty_order, dtype=np.float64).reshape(-1)
-            specs.append(
-                DcmImportSpec(
-                    name,
-                    "MAP",
-                    mat,
-                    {0: ax0, 1: ax1},
-                    display_name=display_name,
-                    unit=unit,
-                    source_identifier=source_identifier,
-                    axis_names=axis_names,
-                    axis_units=axis_units,
-                )
-            )
-            continue
-
-        if kw == "STUETZSTELLENVERTEILUNG":
-            if len(parts) < 3:
-                raise ValueError("STUETZSTELLENVERTEILUNG requires <name> <count>")
-            name = parts[1]
-            nx = int(parts[2])
-            i += 1
-            stx2: list[float] | None = None
-            display_name = ""
-            unit = ""
-            source_identifier = ""
-            axis_names: dict[int, str] = {}
-            axis_units: dict[int, str] = {}
-            while i < len(lines):
-                tp = _tokens(lines[i])
-                if tp and tp[0].upper() == "END":
-                    i += 1
-                    break
-                if tp and tp[0].upper() == "ST/X":
-                    stx2 = _floats_after_keyword(tp, "ST/X")
-                elif tp and tp[0].upper() == "LANGNAME":
-                    display_name = _str_after_keyword(tp, "LANGNAME", context=name)
-                elif tp and tp[0].upper() == "EINHEIT":
-                    unit = _str_after_keyword(tp, "EINHEIT", context=name)
-                elif tp and tp[0].upper() == "LANGNAME_X":
-                    axis_names[0] = _str_after_keyword(tp, "LANGNAME_X", context=name)
-                elif tp and tp[0].upper() == "EINHEIT_X":
-                    axis_units[0] = _str_after_keyword(tp, "EINHEIT_X", context=name)
-                elif tp and tp[0].upper() == "VAR":
-                    source_identifier = _append_source_identifier(
-                        source_identifier,
-                        "VAR",
-                        _str_after_keyword(tp, "VAR", context=name),
-                    )
-                elif tp and tp[0].upper() == "FUNKTION":
-                    source_identifier = _append_source_identifier(
-                        source_identifier,
-                        "FUNKTION",
-                        _str_after_keyword(tp, "FUNKTION", context=name),
-                    )
-                i += 1
-            if stx2 is None or int(stx2.size) != nx:
-                raise ValueError(f"STUETZSTELLENVERTEILUNG {name!r} invalid ST/X")
-            arr = np.asarray(stx2, dtype=np.float64).reshape(nx)
-            specs.append(
-                DcmImportSpec(
-                    name,
-                    "NODE_ARRAY",
-                    arr,
-                    display_name=display_name,
-                    unit=unit,
-                    source_identifier=source_identifier,
-                    axis_names=axis_names,
-                    axis_units=axis_units,
-                )
-            )
-            continue
-
-        raise ValueError(f"Unsupported or unknown DCM keyword {kw!r} at line {lines[i]!r}")
+        i, spec = _parse_dcm_specs_parse_block(lines, i, parts, kw)
+        specs.append(spec)
 
     return specs
+
+
+def _import_dcm_read_and_parse(
+    controller: Any,
+    data_set_ref: str,
+    file_path: str,
+    *,
+    import_phase_hook: Callable[[str, int], None] | None,
+    cooperative_hook: Callable[[], None] | None,
+) -> tuple[Any, list[DcmImportSpec]]:
+    from synarius_core.model.data_model import ComplexInstance
+
+    path = Path(file_path)
+    if import_phase_hook is not None:
+        import_phase_hook("reading", 0)
+    text = path.read_text(encoding="utf-8", errors="replace")
+    if import_phase_hook is not None:
+        import_phase_hook("parsing", 0)
+    specs = parse_dcm_specs(text, cooperative_hook=cooperative_hook, cooperative_every=400)
+    ds = controller._resolve_ref(data_set_ref.strip())
+    if not isinstance(ds, ComplexInstance) or ds.id is None:
+        raise ValueError("data_set_ref must resolve to an attached ComplexInstance with id")
+    try:
+        if str(ds.get("type")) != "MODEL.PARAMETER_DATA_SET":
+            raise ValueError("data_set_ref must resolve to a MODEL.PARAMETER_DATA_SET node")
+    except KeyError as exc:
+        raise ValueError("data_set_ref must resolve to a MODEL.PARAMETER_DATA_SET node") from exc
+    return ds, specs
+
+
+def _import_dcm_build_attachment_pairs(
+    controller: Any,
+    ds: Any,
+    specs: list[DcmImportSpec],
+    *,
+    progress_hook: Callable[[int, int], None] | None,
+    import_phase_hook: Callable[[str, int], None] | None,
+) -> list[tuple[Any, CalParamImportPrepared]]:
+    from synarius_core.model.data_model import ComplexInstance
+
+    rt = controller.model.parameter_runtime()
+    total = len(specs)
+    umax = max(1, 3 * total)
+    if import_phase_hook is not None:
+        import_phase_hook("write", total)
+    pairs: list[tuple[ComplexInstance, CalParamImportPrepared]] = []
+    for spec in specs:
+        node = ComplexInstance(name=spec.name)
+        controller.model.attach(node, parent=ds, reserve_existing=False, remap_ids=False)
+        ax_copy = {int(k): np.asarray(v, dtype=np.float64).copy() for k, v in spec.axes.items()}
+        prep = rt.repo.prepare_cal_param_import_row(
+            parameter_id=node.id,
+            data_set_id=ds.id,
+            name=spec.name,
+            category=spec.category,
+            display_name=spec.display_name,
+            unit=spec.unit,
+            source_identifier=spec.source_identifier,
+            values=np.asarray(spec.values, dtype=np.float64),
+            axes=ax_copy,
+            axis_names={int(k): str(v) for k, v in spec.axis_names.items()},
+            axis_units={int(k): str(v) for k, v in spec.axis_units.items()},
+        )
+        pairs.append((node, prep))
+        n_done = len(pairs)
+        if progress_hook is not None:
+            progress_hook(n_done, umax)
+    return pairs
 
 
 def import_dcm_for_dataset(
@@ -457,72 +532,41 @@ def import_dcm_for_dataset(
     ``cooperative_hook`` is invoked periodically during parse, DuckDB bulk chunks, and model
     virtual-attribute installation so the UI thread can stay responsive (e.g. ``processEvents``).
     """
-    path = Path(file_path)
-    if import_phase_hook is not None:
-        import_phase_hook("reading", 0)
-    text = path.read_text(encoding="utf-8", errors="replace")
-    if import_phase_hook is not None:
-        import_phase_hook("parsing", 0)
-    specs = parse_dcm_specs(text, cooperative_hook=cooperative_hook, cooperative_every=400)
-    ds = controller._resolve_ref(data_set_ref.strip())
-    from synarius_core.model.data_model import ComplexInstance
-
-    if not isinstance(ds, ComplexInstance) or ds.id is None:
-        raise ValueError("data_set_ref must resolve to an attached ComplexInstance with id")
-    try:
-        if str(ds.get("type")) != "MODEL.PARAMETER_DATA_SET":
-            raise ValueError("data_set_ref must resolve to a MODEL.PARAMETER_DATA_SET node")
-    except KeyError as exc:
-        raise ValueError("data_set_ref must resolve to a MODEL.PARAMETER_DATA_SET node") from exc
-
+    ds, specs = _import_dcm_read_and_parse(
+        controller,
+        data_set_ref,
+        file_path,
+        import_phase_hook=import_phase_hook,
+        cooperative_hook=cooperative_hook,
+    )
+    pairs = _import_dcm_build_attachment_pairs(
+        controller,
+        ds,
+        specs,
+        progress_hook=progress_hook,
+        import_phase_hook=import_phase_hook,
+    )
     rt = controller.model.parameter_runtime()
     total = len(specs)
     umax = max(1, 3 * total)
-    if import_phase_hook is not None:
-        import_phase_hook("write", total)
-    pairs: list[tuple[ComplexInstance, CalParamImportPrepared]] = []
-    for spec in specs:
-        node = ComplexInstance(name=spec.name)
-        controller.model.attach(node, parent=ds, reserve_existing=False, remap_ids=False)
-        ax_copy = {int(k): np.asarray(v, dtype=np.float64).copy() for k, v in spec.axes.items()}
-        prep = rt.repo.prepare_cal_param_import_row(
-            parameter_id=node.id,
-            data_set_id=ds.id,
-            name=spec.name,
-            category=spec.category,
-            display_name=spec.display_name,
-            unit=spec.unit,
-            source_identifier=spec.source_identifier,
-            values=np.asarray(spec.values, dtype=np.float64),
-            axes=ax_copy,
-            axis_names={int(k): str(v) for k, v in spec.axis_names.items()},
-            axis_units={int(k): str(v) for k, v in spec.axis_units.items()},
-        )
-        pairs.append((node, prep))
-        n = len(pairs)
-        if progress_hook is not None:
-            progress_hook(n, umax)
 
-    def _virtual_phase(done: int, _tot: int) -> None:
+    def virtual_phase(done: int, _tot: int) -> None:
         if progress_hook is not None:
             progress_hook(2 * total + done, umax)
         if import_phase_hook is not None:
             import_phase_hook("virtuals", done)
 
-    write_hook = None
+    write_hook: Callable[[int, int], None] | None = None
     if progress_hook is not None:
-        _base = total
-        _um = umax
-        _prog = progress_hook
 
         def write_hook(d: int, _t: int) -> None:
-            _prog(_base + d, _um)
+            progress_hook(total + d, umax)
 
     rt.register_cal_param_nodes_bulk_from_import(
         pairs,
         cooperative_hook=cooperative_hook,
         write_progress_hook=write_hook,
-        virtual_progress_hook=_virtual_phase if (progress_hook is not None or import_phase_hook is not None) else None,
+        virtual_progress_hook=virtual_phase if (progress_hook is not None or import_phase_hook is not None) else None,
         virtual_progress_every=80,
     )
     n = len(pairs)
@@ -592,6 +636,130 @@ def _lines_var_funk(rec: ParameterRecord, lines: list[str]) -> None:
         lines.append(f" FUNKTION {_dcm_short_atom(f)}")
 
 
+def _format_dcm_export_value(rec: ParameterRecord, name: str, vals: np.ndarray) -> str:
+    if vals.ndim != 0:
+        raise ValueError(f"VALUE parameter {rec.name!r} must be scalar")
+    lines: list[str] = []
+    w = float(vals.item())
+    lines.append(f"FESTWERT {name}")
+    _lines_langname_einheit(rec, lines)
+    _lines_var_funk(rec, lines)
+    lines.append(f" WERT {_fmt_dcm_float(w)}")
+    lines.append("END")
+    return "\n".join(lines) + "\n"
+
+
+def _format_dcm_export_array(rec: ParameterRecord, name: str, vals: np.ndarray) -> str:
+    if vals.ndim != 1:
+        raise ValueError(f"ARRAY parameter {rec.name!r} must be one-dimensional")
+    nx = int(vals.shape[0])
+    lines: list[str] = []
+    lines.append(f"FESTWERTEBLOCK {name} {nx}")
+    _lines_langname_einheit(rec, lines)
+    _lines_var_funk(rec, lines)
+    row = " ".join(_fmt_dcm_float(float(x)) for x in vals.reshape(-1))
+    lines.append(f" WERT {row}")
+    lines.append("END")
+    return "\n".join(lines) + "\n"
+
+
+def _format_dcm_export_matrix(rec: ParameterRecord, name: str, vals: np.ndarray) -> str:
+    if vals.ndim != 2:
+        raise ValueError(f"MATRIX parameter {rec.name!r} must be two-dimensional")
+    nx, ny = int(vals.shape[0]), int(vals.shape[1])
+    lines: list[str] = []
+    lines.append(f"FESTWERTEBLOCK {name} {nx} @ {ny}")
+    _lines_langname_einheit(rec, lines)
+    _lines_var_funk(rec, lines)
+    for yi in range(ny):
+        row = vals[:, yi]
+        lines.append(" WERT " + " ".join(_fmt_dcm_float(float(x)) for x in row))
+    lines.append("END")
+    return "\n".join(lines) + "\n"
+
+
+def _format_dcm_export_curve(rec: ParameterRecord, name: str, vals: np.ndarray) -> str:
+    if vals.ndim != 1:
+        raise ValueError(f"CURVE parameter {rec.name!r} must be one-dimensional")
+    ax0 = rec.axes.get(0)
+    if ax0 is None:
+        raise ValueError(f"CURVE parameter {rec.name!r} missing axis 0")
+    stx = np.asarray(ax0, dtype=np.float64).reshape(-1)
+    nx = int(vals.shape[0])
+    if int(stx.size) != nx:
+        raise ValueError(f"CURVE parameter {rec.name!r} axis length mismatch")
+    lines: list[str] = []
+    lines.append(f"KENNLINIE {name} {nx}")
+    _lines_langname_einheit(rec, lines)
+    nm0 = rec.axis_names.get(0, "").strip()
+    un0 = rec.axis_units.get(0, "").strip()
+    if nm0:
+        lines.append(f" LANGNAME_X {_dcm_double_quoted(nm0)}")
+    if un0:
+        lines.append(f" EINHEIT_X {_dcm_short_atom(un0)}")
+    _lines_var_funk(rec, lines)
+    lines.append(" ST/X " + " ".join(_fmt_dcm_float(float(x)) for x in stx))
+    lines.append(" WERT " + " ".join(_fmt_dcm_float(float(x)) for x in vals.reshape(-1)))
+    lines.append("END")
+    return "\n".join(lines) + "\n"
+
+
+def _format_dcm_export_map(rec: ParameterRecord, name: str, vals: np.ndarray) -> str:
+    if vals.ndim != 2:
+        raise ValueError(f"MAP parameter {rec.name!r} must be two-dimensional")
+    ax0 = rec.axes.get(0)
+    ax1 = rec.axes.get(1)
+    if ax0 is None or ax1 is None:
+        raise ValueError(f"MAP parameter {rec.name!r} missing axes 0/1")
+    stx = np.asarray(ax0, dtype=np.float64).reshape(-1)
+    sty = np.asarray(ax1, dtype=np.float64).reshape(-1)
+    nx, ny = int(vals.shape[0]), int(vals.shape[1])
+    if int(stx.size) != nx or int(sty.size) != ny:
+        raise ValueError(f"MAP parameter {rec.name!r} axis length mismatch")
+    lines: list[str] = []
+    lines.append(f"KENNFELD {name} {nx} {ny}")
+    _lines_langname_einheit(rec, lines)
+    nm0 = rec.axis_names.get(0, "").strip()
+    un0 = rec.axis_units.get(0, "").strip()
+    nm1 = rec.axis_names.get(1, "").strip()
+    un1 = rec.axis_units.get(1, "").strip()
+    if nm0:
+        lines.append(f" LANGNAME_X {_dcm_double_quoted(nm0)}")
+    if un0:
+        lines.append(f" EINHEIT_X {_dcm_short_atom(un0)}")
+    if nm1:
+        lines.append(f" LANGNAME_Y {_dcm_double_quoted(nm1)}")
+    if un1:
+        lines.append(f" EINHEIT_Y {_dcm_short_atom(un1)}")
+    _lines_var_funk(rec, lines)
+    lines.append(" ST/X " + " ".join(_fmt_dcm_float(float(x)) for x in stx))
+    for yi in range(ny):
+        lines.append(f" ST/Y {_fmt_dcm_float(float(sty[yi]))}")
+        row = vals[:, yi]
+        lines.append(" WERT " + " ".join(_fmt_dcm_float(float(x)) for x in row))
+    lines.append("END")
+    return "\n".join(lines) + "\n"
+
+
+def _format_dcm_export_node_array(rec: ParameterRecord, name: str, vals: np.ndarray) -> str:
+    if vals.ndim != 1:
+        raise ValueError(f"NODE_ARRAY parameter {rec.name!r} must be one-dimensional")
+    nx = int(vals.shape[0])
+    lines: list[str] = []
+    lines.append(f"STUETZSTELLENVERTEILUNG {name} {nx}")
+    _lines_langname_einheit(rec, lines)
+    nm0 = rec.axis_names.get(0, "").strip()
+    un0 = rec.axis_units.get(0, "").strip()
+    if nm0:
+        lines.append(f" LANGNAME_X {_dcm_double_quoted(nm0)}")
+    if un0:
+        lines.append(f" EINHEIT_X {_dcm_short_atom(un0)}")
+    _lines_var_funk(rec, lines)
+    lines.append(" ST/X " + " ".join(_fmt_dcm_float(float(x)) for x in vals.reshape(-1)))
+    lines.append("END")
+    return "\n".join(lines) + "\n"
+
+
 def format_parameter_record_dcm(rec: ParameterRecord) -> str:
     """Serialize one numeric :class:`ParameterRecord` to a DCM block (subset matching :func:`parse_dcm_specs`)."""
     if rec.is_text:
@@ -600,119 +768,18 @@ def format_parameter_record_dcm(rec: ParameterRecord) -> str:
     cat = str(rec.category).upper()
     name = _dcm_ident(rec.name)
     vals = np.asarray(rec.values, dtype=np.float64)
-    lines: list[str] = []
-
     if cat == "VALUE":
-        if vals.ndim != 0:
-            raise ValueError(f"VALUE parameter {rec.name!r} must be scalar")
-        w = float(vals.item())
-        lines.append(f"FESTWERT {name}")
-        _lines_langname_einheit(rec, lines)
-        _lines_var_funk(rec, lines)
-        lines.append(f" WERT {_fmt_dcm_float(w)}")
-        lines.append("END")
-        return "\n".join(lines) + "\n"
-
+        return _format_dcm_export_value(rec, name, vals)
     if cat == "ARRAY":
-        if vals.ndim != 1:
-            raise ValueError(f"ARRAY parameter {rec.name!r} must be one-dimensional")
-        nx = int(vals.shape[0])
-        lines.append(f"FESTWERTEBLOCK {name} {nx}")
-        _lines_langname_einheit(rec, lines)
-        _lines_var_funk(rec, lines)
-        row = " ".join(_fmt_dcm_float(float(x)) for x in vals.reshape(-1))
-        lines.append(f" WERT {row}")
-        lines.append("END")
-        return "\n".join(lines) + "\n"
-
+        return _format_dcm_export_array(rec, name, vals)
     if cat == "MATRIX":
-        if vals.ndim != 2:
-            raise ValueError(f"MATRIX parameter {rec.name!r} must be two-dimensional")
-        nx, ny = int(vals.shape[0]), int(vals.shape[1])
-        lines.append(f"FESTWERTEBLOCK {name} {nx} @ {ny}")
-        _lines_langname_einheit(rec, lines)
-        _lines_var_funk(rec, lines)
-        for yi in range(ny):
-            row = vals[:, yi]
-            lines.append(" WERT " + " ".join(_fmt_dcm_float(float(x)) for x in row))
-        lines.append("END")
-        return "\n".join(lines) + "\n"
-
+        return _format_dcm_export_matrix(rec, name, vals)
     if cat == "CURVE":
-        if vals.ndim != 1:
-            raise ValueError(f"CURVE parameter {rec.name!r} must be one-dimensional")
-        ax0 = rec.axes.get(0)
-        if ax0 is None:
-            raise ValueError(f"CURVE parameter {rec.name!r} missing axis 0")
-        stx = np.asarray(ax0, dtype=np.float64).reshape(-1)
-        nx = int(vals.shape[0])
-        if int(stx.size) != nx:
-            raise ValueError(f"CURVE parameter {rec.name!r} axis length mismatch")
-        lines.append(f"KENNLINIE {name} {nx}")
-        _lines_langname_einheit(rec, lines)
-        nm0 = rec.axis_names.get(0, "").strip()
-        un0 = rec.axis_units.get(0, "").strip()
-        if nm0:
-            lines.append(f" LANGNAME_X {_dcm_double_quoted(nm0)}")
-        if un0:
-            lines.append(f" EINHEIT_X {_dcm_short_atom(un0)}")
-        _lines_var_funk(rec, lines)
-        lines.append(" ST/X " + " ".join(_fmt_dcm_float(float(x)) for x in stx))
-        lines.append(" WERT " + " ".join(_fmt_dcm_float(float(x)) for x in vals.reshape(-1)))
-        lines.append("END")
-        return "\n".join(lines) + "\n"
-
+        return _format_dcm_export_curve(rec, name, vals)
     if cat == "MAP":
-        if vals.ndim != 2:
-            raise ValueError(f"MAP parameter {rec.name!r} must be two-dimensional")
-        ax0 = rec.axes.get(0)
-        ax1 = rec.axes.get(1)
-        if ax0 is None or ax1 is None:
-            raise ValueError(f"MAP parameter {rec.name!r} missing axes 0/1")
-        stx = np.asarray(ax0, dtype=np.float64).reshape(-1)
-        sty = np.asarray(ax1, dtype=np.float64).reshape(-1)
-        nx, ny = int(vals.shape[0]), int(vals.shape[1])
-        if int(stx.size) != nx or int(sty.size) != ny:
-            raise ValueError(f"MAP parameter {rec.name!r} axis length mismatch")
-        lines.append(f"KENNFELD {name} {nx} {ny}")
-        _lines_langname_einheit(rec, lines)
-        nm0 = rec.axis_names.get(0, "").strip()
-        un0 = rec.axis_units.get(0, "").strip()
-        nm1 = rec.axis_names.get(1, "").strip()
-        un1 = rec.axis_units.get(1, "").strip()
-        if nm0:
-            lines.append(f" LANGNAME_X {_dcm_double_quoted(nm0)}")
-        if un0:
-            lines.append(f" EINHEIT_X {_dcm_short_atom(un0)}")
-        if nm1:
-            lines.append(f" LANGNAME_Y {_dcm_double_quoted(nm1)}")
-        if un1:
-            lines.append(f" EINHEIT_Y {_dcm_short_atom(un1)}")
-        _lines_var_funk(rec, lines)
-        lines.append(" ST/X " + " ".join(_fmt_dcm_float(float(x)) for x in stx))
-        for yi in range(ny):
-            lines.append(f" ST/Y {_fmt_dcm_float(float(sty[yi]))}")
-            row = vals[:, yi]
-            lines.append(" WERT " + " ".join(_fmt_dcm_float(float(x)) for x in row))
-        lines.append("END")
-        return "\n".join(lines) + "\n"
-
+        return _format_dcm_export_map(rec, name, vals)
     if cat == "NODE_ARRAY":
-        if vals.ndim != 1:
-            raise ValueError(f"NODE_ARRAY parameter {rec.name!r} must be one-dimensional")
-        nx = int(vals.shape[0])
-        lines.append(f"STUETZSTELLENVERTEILUNG {name} {nx}")
-        _lines_langname_einheit(rec, lines)
-        nm0 = rec.axis_names.get(0, "").strip()
-        un0 = rec.axis_units.get(0, "").strip()
-        if nm0:
-            lines.append(f" LANGNAME_X {_dcm_double_quoted(nm0)}")
-        if un0:
-            lines.append(f" EINHEIT_X {_dcm_short_atom(un0)}")
-        _lines_var_funk(rec, lines)
-        lines.append(" ST/X " + " ".join(_fmt_dcm_float(float(x)) for x in vals.reshape(-1)))
-        lines.append("END")
-        return "\n".join(lines) + "\n"
+        return _format_dcm_export_node_array(rec, name, vals)
 
     raise ValueError(f"Unsupported category for DCM export: {rec.category!r} ({rec.name!r})")
 

@@ -312,8 +312,8 @@ class SimulationEngineTest(unittest.TestCase):
             model.attach(n, parent=model.root, reserve_existing=False, remap_ids=False)
         assert src.id and cst.id and op.id and out.id
         src.set("stim_kind", "ramp")
-        src.set("stim_p0", 0.0)
-        src.set("stim_p1", 10.0)
+        src.set("stim_ramp_offset", 0.0)
+        src.set("stim_ramp_slope", 10.0)
 
         e1 = Connector(
             name="c1",

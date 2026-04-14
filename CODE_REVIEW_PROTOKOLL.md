@@ -14,15 +14,12 @@
 ### `synarius_core/cli`
 #### `__init__.py`
 - Lorem ipsum.
-#### `minimal_cli.py`
-- Lorem ipsum.
-### `synarius_core/codegen`
-#### `__init__.py`
+#### `synarius_cli.py`
 - Lorem ipsum.
 ### `synarius_core/controller`
 #### `__init__.py`
 - Lorem ipsum.
-#### `minimal_controller.py`
+#### `synarius_controller.py`
 - Lorem ipsum.
 ### `synarius_core/dataflow_sim`
 #### `__init__.py`

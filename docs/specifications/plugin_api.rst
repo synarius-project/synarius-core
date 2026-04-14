@@ -259,3 +259,14 @@ FMF libraries use ``libraryDescription.xml`` and a parallel folder layout under
 ``Plugins/``. The two mechanisms are **orthogonal**: libraries describe reusable
 FMF elements; plugins describe **executable extensions** to the Synarius tool
 chain and runtime.
+
+--------------------------------------------------------------------------------
+Evolving architecture (FMU / library / generic controller)
+--------------------------------------------------------------------------------
+
+The **v0.1** contract above remains the loading and capability model. For the
+**target architecture** (FMU semantics in a Synarius-Library, generic
+``SynariusController``/CCP operations, ``sync`` terminology, validation module), see
+:doc:`fmu_library_plugin_concept_v0_2_9` (concept **v0.2.9**, German) and
+:doc:`fmu_library_plugin_api_v0_3_draft` (Python API **v0.3-draft**) — neither replaces
+this document. Older drafts are superseded but kept for history.
