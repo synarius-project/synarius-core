@@ -1,4 +1,4 @@
-"""Bundled FMF Standard Library layout (Add, Sub, Mul, Div)."""
+"""Bundled FMF Standard Library layout (Add, Sub, Mul, Div, Kennwert, Kennlinie, Kennfeld)."""
 
 from __future__ import annotations
 
@@ -25,13 +25,13 @@ class StandardLibraryTest(unittest.TestCase):
         self.assertEqual(el.attrib.get("name"), "std")
         self.assertEqual(el.attrib.get("version"), STANDARD_LIBRARY_VERSION)
 
-    def test_four_arithmetic_elements(self) -> None:
+    def test_arithmetic_elements(self) -> None:
         root = standard_library_root()
         manifest = ET.parse(root / "libraryDescription.xml")
         ns_hint = ".//"  # no namespaces in v0.1 sample
         elements = manifest.findall(f"{ns_hint}Element")
         ids = {e.attrib.get("id") for e in elements}
-        self.assertEqual(ids, {"Add", "Sub", "Mul", "Div"})
+        self.assertGreaterEqual(ids, {"Add", "Sub", "Mul", "Div"})
 
         for eid in ("Add", "Sub", "Mul", "Div"):
             ed = root / "components" / eid / "elementDescription.xml"
@@ -53,6 +53,40 @@ class StandardLibraryTest(unittest.TestCase):
             for size in (16, 32, 64):
                 icon = root / "components" / eid / "resources" / "icons" / f"{fmfl_name}_{size}.svg"
                 self.assertTrue(icon.is_file(), msg=str(icon))
+
+    def test_param_lookup_elements(self) -> None:
+        """Kennwert / Kennlinie / Kennfeld are registered and have valid elementDescription.xml files."""
+        root = standard_library_root()
+        manifest = ET.parse(root / "libraryDescription.xml")
+        ns_hint = ".//"
+        element_ids = {e.attrib.get("id") for e in manifest.findall(f"{ns_hint}Element")}
+        self.assertGreaterEqual(element_ids, {"Kennwert", "Kennlinie", "Kennfeld"})
+
+        expected_ports = {
+            "Kennwert": ([], ["out"]),
+            "Kennlinie": (["x"], ["out"]),
+            "Kennfeld": (["x", "y"], ["out"]),
+        }
+        for eid, (in_ports, out_ports) in expected_ports.items():
+            ed = root / "components" / eid / "elementDescription.xml"
+            self.assertTrue(ed.is_file(), msg=str(ed))
+            elem = ET.parse(ed).getroot()
+            self.assertEqual(elem.attrib.get("id"), eid)
+            # No FMFL block — semantics are compiler-internal lookup primitives
+            fmfl_el = next((n for n in elem.iter() if n.tag == "FMFL"), None)
+            self.assertIsNone(fmfl_el, msg=f"{eid} must not have a Behavior/FMFL block")
+            # Verify port declarations
+            ports_el = elem.find("Ports")
+            self.assertIsNotNone(ports_el, msg=f"{eid} missing Ports element")
+            actual_in = [p.attrib["name"] for p in ports_el.findall("Port") if p.attrib.get("kind") == "in"]
+            actual_out = [p.attrib["name"] for p in ports_el.findall("Port") if p.attrib.get("kind") == "out"]
+            self.assertEqual(actual_in, in_ports, msg=f"{eid} input ports mismatch")
+            self.assertEqual(actual_out, out_ports, msg=f"{eid} output ports mismatch")
+            # parameter_ref parameter must be declared
+            params_el = elem.find("Parameters")
+            self.assertIsNotNone(params_el, msg=f"{eid} missing Parameters element")
+            param_names = {p.attrib.get("name") for p in params_el.findall("Parameter")}
+            self.assertIn("parameter_ref", param_names, msg=f"{eid} must declare parameter_ref")
 
 
 if __name__ == "__main__":

@@ -33,3 +33,7 @@ class RunStepExchange:
     workspace_previous: Mapping[object, float] | None = None
     fmu_step: Callable[[UUID], None] | None = None
     simulation_context: Any | None = None
+    #: Resolved parameter data for this step: node UUID → (values_ndarray, axes_dict).
+    #: Populated by :class:`~synarius_core.dataflow_sim.engine.SimpleRunEngine` when a
+    #: :class:`~synarius_core.parameters.runtime.ParameterRuntime` is attached.
+    param_cache: dict | None = None

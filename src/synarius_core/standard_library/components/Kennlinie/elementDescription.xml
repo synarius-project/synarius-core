@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ElementDescription id="Kennlinie" name="Kennlinie">
+  <Description>1-D curve lookup with linear interpolation and clamp extrapolation.
+  Reads a breakpoint table from the active dataset and evaluates it at input x.</Description>
+  <Ports>
+    <Port kind="in" name="x" type="real"/>
+    <Port kind="out" name="out" type="real"/>
+  </Ports>
+  <Parameters>
+    <Parameter name="parameter_ref" type="string" default="">
+      <Description>Path to the MODEL.CAL_PARAM node relative to @active_dataset (e.g. "group/TempCurve").</Description>
+    </Parameter>
+  </Parameters>
+  <Graphics icon16="resources/icons/curve_16.svg"
+            icon32="resources/icons/curve_32.svg"
+            icon64="resources/icons/curve_64.svg"
+            diagram_icon="resources/icons/curve_32.svg"/>
+  <!-- No Behavior block: semantics are defined by the curve_lookup lookup primitive
+       (compiler_lowering_rules.rst). The DataflowCompilePass handles this type_key directly. -->
+</ElementDescription>

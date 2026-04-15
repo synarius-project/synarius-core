@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ElementDescription id="Kennfeld" name="Kennfeld">
+  <Description>2-D map lookup with bilinear interpolation and clamp extrapolation.
+  Reads a 2-D value table from the active dataset and evaluates it at inputs (x, y).</Description>
+  <Ports>
+    <Port kind="in" name="x" type="real"/>
+    <Port kind="in" name="y" type="real"/>
+    <Port kind="out" name="out" type="real"/>
+  </Ports>
+  <Parameters>
+    <Parameter name="parameter_ref" type="string" default="">
+      <Description>Path to the MODEL.CAL_PARAM node relative to @active_dataset (e.g. "group/SpeedTorqueMap").</Description>
+    </Parameter>
+  </Parameters>
+  <Graphics icon16="resources/icons/map_16.svg"
+            icon32="resources/icons/map_32.svg"
+            icon64="resources/icons/map_64.svg"
+            diagram_icon="resources/icons/map_32.svg"/>
+  <!-- No Behavior block: semantics are defined by the map_lookup lookup primitive
+       (compiler_lowering_rules.rst). The DataflowCompilePass handles this type_key directly. -->
+</ElementDescription>

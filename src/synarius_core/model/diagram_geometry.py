@@ -101,9 +101,28 @@ def _elementary_title_bar_inner_width_scene(title: str, subtitle: str) -> float:
 def elementary_lib_block_pin_diagram_xy(inst: object, pin_name: str) -> tuple[float, float] | None:
     """Elementary library block pins (multi in/out); mirrors ``FmuBlockItem`` / studio layout."""
     from synarius_core.model.data_model import ElementaryInstance, elementary_diagram_subtitle_for_geometry
+    from synarius_core.dataflow_sim._std_type_keys import STD_ARITHMETIC_OP
 
     if not isinstance(inst, ElementaryInstance):
         return None
+
+    # Compact icon mode: std arithmetic ops use OPERATOR_SIZE square, same pin layout as BasicOperator.
+    if inst.type_key in STD_ARITHMETIC_OP:
+        ins = sorted(inst.in_pins, key=lambda p: p.name)
+        outs = sorted(inst.out_pins, key=lambda p: p.name)
+        bx, by = _block_origin_scene(inst)
+        y0 = 0.5 * _MODULE
+        y1 = _OPERATOR_SIZE - 0.5 * _MODULE
+        ys_in = _distributed_ys(len(ins), y0, y1)
+        ys_out = _distributed_ys(len(outs), y0, y1)
+        for p, py in zip(ins, ys_in):
+            if p.name == pin_name:
+                return (bx - _PIN_STUB_SCENE, by + py)
+        for p, py in zip(outs, ys_out):
+            if p.name == pin_name:
+                return (bx + _OPERATOR_SIZE + _PIN_STUB_SCENE, by + py)
+        return (bx + _OPERATOR_SIZE * 0.5, by + _OPERATOR_SIZE * 0.5)
+
     ins = sorted(inst.in_pins, key=lambda p: p.name)
     outs = sorted(inst.out_pins, key=lambda p: p.name)
     n_in, n_out = len(ins), len(outs)

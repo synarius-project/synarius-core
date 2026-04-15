@@ -189,4 +189,4 @@ This specification **does not** **[NORMATIVE]** define:
 * :doc:`architecture_and_pipeline_v0_2` — FMF/FMFL roles and codegen pipeline.
 * :doc:`changelog_v0_2` — compatibility and supersessions.
 * :doc:`fmf_v0_1`, :doc:`fmfl_v0_1` — v0.1 baseline.
-* :doc:`../plugin_api` — plugins **MUST NOT** redefine core FMFL semantics.
+* :doc:`../plugin_concept_v0_3_plugin_api` — plugins **MUST NOT** redefine core FMFL semantics.

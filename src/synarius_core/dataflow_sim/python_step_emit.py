@@ -16,8 +16,12 @@ from .compiler import CompiledDataflow, elementary_has_fmu_path, unpack_wire_ref
 from .equation_walk import (
     EqFmu,
     EqGeneric,
+    EqKennfeld,
+    EqKennlinie,
+    EqKennwert,
     EqOperator,
     EqOperatorIncomplete,
+    EqStdArithmetic,
     EqVarNoInput,
     EqVarWire,
     iter_equation_items,
@@ -111,6 +115,7 @@ def generate_unrolled_python_step_document(
     nb = compiled.node_by_id
     names = {uid: _nid(uid) for uid in nb}
     wk_map = compiled.workspace_key_uid or {}
+    has_param_bound = bool(getattr(compiled, "param_bound_node_ids", None))
 
     const_lines: list[str] = [
         '"""Unrolled scalar equations for one step (host applies stimulation before this runs)."""',
@@ -123,9 +128,18 @@ def generate_unrolled_python_step_document(
         "from uuid import UUID",
         "",
         "from synarius_core.dataflow_sim.step_exchange import RunStepExchange",
+    ]
+    if has_param_bound:
+        const_lines.extend([
+            "from synarius_core.dataflow_sim.lookup_ops import (",
+            "    syn_curve_lookup_linear_clamp,",
+            "    syn_map_lookup_bilinear_clamp,",
+            ")",
+        ])
+    const_lines.extend([
         "",
         "# --- diagram node ids (UUID constants) ---",
-    ]
+    ])
     for uid, node in sorted(nb.items(), key=lambda x: (_label(x[1]), str(x[0]))):
         const_lines.append(f"{names[uid]} = UUID({str(uid)!r})  # {_label(node)}")
 
@@ -146,6 +160,8 @@ def generate_unrolled_python_step_document(
                 "        raise RuntimeError('workspace_previous is required when the graph has delayed feedback edges')",
             ]
         )
+    if has_param_bound:
+        body.append("    _pc = exchange.param_cache or {}")
     body.append("")
     tmp_i = [0]
     ws_prev_arg: str | None = "w_prev" if needs_prev else None
@@ -199,6 +215,62 @@ def generate_unrolled_python_step_document(
             slot_key = names[wk_map.get(ev.target_uid, ev.target_uid)]
             body.append(f"    if {diagram_id} not in stimmed:")
             body.append(f"        ws[{slot_key}] = {rhs}")
+            body.append("")
+            continue
+        if isinstance(ev, EqStdArithmetic):
+            a_id, a_pin = unpack_wire_ref(ev.in0)
+            b_id, b_pin = unpack_wire_ref(ev.in1)
+            ra = _read_operand_expr("ws", ws_prev_arg, a_id, a_pin, nb, names, wk_map, ev.in0_from_previous)
+            rb = _read_operand_expr("ws", ws_prev_arg, b_id, b_pin, nb, names, wk_map, ev.in1_from_previous)
+            slot = wk_map.get(ev.target_uid, ev.target_uid)
+            nk = names[slot]
+            if ev.op_symbol == "/":
+                tid = tmp_i[0]
+                tmp_i[0] += 1
+                ta, tb = f"_a{tid}", f"_b{tid}"
+                body.append(f"    {ta} = {ra}")
+                body.append(f"    {tb} = {rb}")
+                body.append(f"    ws[{nk}] = float('nan') if abs({tb}) < 1e-15 else {ta} / {tb}")
+            else:
+                body.append(f"    ws[{nk}] = {ra} {ev.op_symbol} {rb}")
+            body.append("")
+            continue
+        if isinstance(ev, EqKennwert):
+            slot = wk_map.get(ev.target_uid, ev.target_uid)
+            nk = names[slot]
+            nid = names[ev.target_uid]
+            body.append(f"    # {ev.target_label}: std.Kennwert (scalar parameter)")
+            body.append(f"    ws[{nk}] = float(_pc.get({nid}, 0.0))")
+            body.append("")
+            continue
+        if isinstance(ev, EqKennlinie):
+            slot = wk_map.get(ev.target_uid, ev.target_uid)
+            nk = names[slot]
+            nid = names[ev.target_uid]
+            x_id, x_pin = unpack_wire_ref(ev.in_x)
+            rx = _read_operand_expr("ws", ws_prev_arg, x_id, x_pin, nb, names, wk_map, ev.in_x_from_previous)
+            body.append(f"    # {ev.target_label}: std.Kennlinie (curve lookup)")
+            body.append(f"    _kl_{nid} = _pc.get({nid})")
+            body.append(f"    if _kl_{nid} is not None:")
+            body.append(f"        ws[{nk}] = syn_curve_lookup_linear_clamp(_kl_{nid}[0], _kl_{nid}[1], {rx})")
+            body.append(f"    else:")
+            body.append(f"        ws[{nk}] = 0.0")
+            body.append("")
+            continue
+        if isinstance(ev, EqKennfeld):
+            slot = wk_map.get(ev.target_uid, ev.target_uid)
+            nk = names[slot]
+            nid = names[ev.target_uid]
+            x_id, x_pin = unpack_wire_ref(ev.in_x)
+            y_id, y_pin = unpack_wire_ref(ev.in_y)
+            rx = _read_operand_expr("ws", ws_prev_arg, x_id, x_pin, nb, names, wk_map, ev.in_x_from_previous)
+            ry = _read_operand_expr("ws", ws_prev_arg, y_id, y_pin, nb, names, wk_map, ev.in_y_from_previous)
+            body.append(f"    # {ev.target_label}: std.Kennfeld (map lookup)")
+            body.append(f"    _km_{nid} = _pc.get({nid})")
+            body.append(f"    if _km_{nid} is not None:")
+            body.append(f"        ws[{nk}] = syn_map_lookup_bilinear_clamp(_km_{nid}[0], _km_{nid}[1], _km_{nid}[2], {rx}, {ry})")
+            body.append(f"    else:")
+            body.append(f"        ws[{nk}] = 0.0")
             body.append("")
             continue
         if isinstance(ev, EqGeneric):

@@ -600,7 +600,7 @@ Error Behavior
 - In transactional mode, failures must roll back all changes created by ``load``.
 
 ``import`` and ``write`` (DCM)
-----------------------------
+------------------------------
 
 **Import** — canonical form::
 

@@ -28,7 +28,7 @@ from .stimulation import stimulation_value
 from .unrolled_loader import load_run_equations_from_source
 
 if TYPE_CHECKING:
-    pass
+    from synarius_core.parameters.runtime import ParameterRuntime
 
 
 class SimpleRunEngine:
@@ -61,6 +61,7 @@ class SimpleRunEngine:
         dt_s: float = 0.02,
         plugin_registry: PluginRegistry | None = None,
         model_directory: Path | str | None = None,
+        param_runtime: ParameterRuntime | None = None,
     ) -> None:
         self._model = model
         self._dt_s = float(dt_s)
@@ -82,6 +83,12 @@ class SimpleRunEngine:
         self._runtime_fmu_session: bool = False
         self._fmu_sim_rt: Any = None
         self._run_equations: Callable[[RunStepExchange], None] | None = None
+        #: Optional ParameterRuntime for Kennwert/Kennlinie/Kennfeld blocks.
+        self._param_runtime: ParameterRuntime | None = param_runtime
+        #: Per-step cache: node UUID → resolved parameter data (float | tuple).
+        self._param_cache: dict[UUID, Any] = {}
+        #: Set when dataset changes between steps — triggers param_cache rebuild on next step.
+        self._param_needs_reload: bool = False
 
     @property
     def context(self) -> SimulationContext:
@@ -148,6 +155,7 @@ class SimpleRunEngine:
             diagnostics=tuple(self._ctx.diagnostics),
         )
         self._run_equations = load_run_equations_from_source(src)
+        self._build_param_cache()
 
         if self._plugin_registry is not None:
             lp = self._plugin_registry.plugin_for_capability("runtime:fmu")
@@ -176,6 +184,63 @@ class SimpleRunEngine:
             self._ctx.options["model_directory"] = str(self._model_directory)
         else:
             self._ctx.options.pop("model_directory", None)
+
+    def _build_param_cache(self) -> None:
+        """Resolve all param-bound nodes and populate ``_param_cache``.
+
+        Multiple diagram blocks that reference the same parameter (same ``pid``) share the same
+        Python data object in ``_param_cache`` — the data is fetched from DuckDB only once per
+        unique pid and then assigned by reference to every block that needs it.  This avoids
+        redundant I/O and array duplication when the same Kennfeld / Kennlinie is placed multiple
+        times on the canvas.
+
+        Raises :class:`~synarius_core.parameters.runtime.ParameterResolutionError` or
+        :class:`~synarius_core.parameters.runtime.ParameterShapeError` on validation failures.
+        """
+        self._param_cache.clear()
+        pr = self._param_runtime
+        if pr is None or self._compiled is None:
+            return
+        from synarius_core.parameters.runtime import ParameterResolutionError
+
+        nb = self._compiled.node_by_id
+        # pid-level cache: avoids N DuckDB round-trips when N blocks share the same parameter_ref.
+        _pid_data: dict = {}
+        for uid in self._compiled.param_bound_node_ids:
+            node = nb.get(uid)
+            if node is None:
+                continue
+            type_key = getattr(node, "type_key", None)
+            try:
+                parameter_ref = str(node.get("parameter_ref") or "").strip()
+            except Exception:
+                parameter_ref = ""
+            if not parameter_ref:
+                raise ParameterResolutionError(
+                    f"Block '{getattr(node, 'name', uid)}' ({type_key}) has no parameter_ref attribute set."
+                )
+            cal_param_node = pr.resolve_cal_param_node(parameter_ref)
+            if cal_param_node.id is None:
+                raise ParameterResolutionError(
+                    f"Resolved MODEL.CAL_PARAM node for '{parameter_ref}' has no id (not attached?)."
+                )
+            pid = cal_param_node.id
+            if pid not in _pid_data:
+                if type_key == "std.Kennwert":
+                    _pid_data[pid] = pr.get_scalar(pid)
+                elif type_key == "std.Kennlinie":
+                    _pid_data[pid] = pr.get_curve(pid)
+                elif type_key == "std.Kennfeld":
+                    _pid_data[pid] = pr.get_map(pid)
+            self._param_cache[uid] = _pid_data[pid]
+        self._param_needs_reload = False
+
+    def request_parameter_reload(self) -> None:
+        """Signal that parameter data should be re-read from the active dataset on the next step.
+
+        Call this after a dataset switch to ensure ``param_cache`` stays consistent.
+        """
+        self._param_needs_reload = True
 
     def reset(self) -> None:
         """Stop semantics: time zero and workspace back to snapshot from last ``init``."""
@@ -206,6 +271,45 @@ class SimpleRunEngine:
         # Snapshot before this step's stimulation (committed end of previous step) for delayed feedback.
         workspace_previous = dict(self._workspace) if self._compiled.feedback_edges else None
 
+        # Reload parameter data when the dataset changed since last step.
+        if self._param_needs_reload and self._param_runtime is not None:
+            from synarius_core.parameters.runtime import ParameterResolutionError
+
+            nb = self._compiled.node_by_id
+            _pid_data: dict = {}  # dedup: same pid → same data object, one DuckDB fetch
+            for uid in self._compiled.param_bound_node_ids:
+                node = nb.get(uid)
+                if node is None:
+                    continue
+                type_key = getattr(node, "type_key", None)
+                try:
+                    parameter_ref = str(node.get("parameter_ref") or "").strip()
+                except Exception:
+                    parameter_ref = ""
+                try:
+                    cal_param_node = self._param_runtime.resolve_cal_param_node(parameter_ref)
+                    if cal_param_node.id is None:
+                        raise ParameterResolutionError(
+                            f"Resolved node for '{parameter_ref}' has no id."
+                        )
+                    pid = cal_param_node.id
+                    if pid not in _pid_data:
+                        if type_key == "std.Kennwert":
+                            _pid_data[pid] = self._param_runtime.get_scalar(pid)
+                        elif type_key == "std.Kennlinie":
+                            _pid_data[pid] = self._param_runtime.get_curve(pid)
+                        elif type_key == "std.Kennfeld":
+                            _pid_data[pid] = self._param_runtime.get_map(pid)
+                    self._param_cache[uid] = _pid_data[pid]
+                except ParameterResolutionError as exc:
+                    import warnings
+                    warnings.warn(
+                        f"Parameter update failed for block '{getattr(node, 'name', uid)}': {exc}; "
+                        "last value retained.",
+                        stacklevel=2,
+                    )
+            self._param_needs_reload = False
+
         self._ctx.time_s += self._dt_s
         t = self._ctx.time_s
         stimmed: set[UUID] = set()
@@ -229,6 +333,7 @@ class SimpleRunEngine:
             workspace_previous=workspace_previous,
             fmu_step=self._invoke_runtime_fmu_step,
             simulation_context=self._ctx,
+            param_cache=self._param_cache if self._param_cache else None,
         )
         self._run_equations(exchange)
 

@@ -13,6 +13,7 @@ from uuid import UUID
 
 from synarius_core.model import BasicOperator, BasicOperatorType, ElementaryInstance, Variable
 
+from ._std_type_keys import STD_ARITHMETIC_OP
 from .compiler import CompiledDataflow, elementary_has_fmu_path, unpack_wire_ref
 
 if TYPE_CHECKING:
@@ -40,6 +41,21 @@ def scalar_ws_read_step(
         return float(bucket.get((src_id, src_pin), 0.0))
     sk = workspace_key_uid.get(src_id, src_id)
     return float(bucket.get(sk, 0.0))
+
+
+def eval_std_arithmetic(type_key: str, a: float, b: float) -> float:
+    """Scalar binary evaluation for a std-library arithmetic ``ElementaryInstance``."""
+    if type_key == "std.Add":
+        return a + b
+    if type_key == "std.Sub":
+        return a - b
+    if type_key == "std.Mul":
+        return a * b
+    if type_key == "std.Div":
+        if abs(b) < 1e-15:
+            return float("nan")
+        return a / b
+    return float("nan")
 
 
 def eval_basic_operator(op: BasicOperator, a: float, b: float) -> float:
@@ -115,6 +131,30 @@ def apply_scalar_equations_topo(
                 use_previous=(b_id, uid, "in2") in fb,
             )
             workspace[slot] = eval_basic_operator(node, a, b)
+        elif isinstance(node, ElementaryInstance) and node.type_key in STD_ARITHMETIC_OP:
+            pins = incoming.get(uid, {})
+            w0, w1 = pins.get("in0"), pins.get("in1")
+            if w0 is None or w1 is None:
+                continue
+            a_id, _ = unpack_wire_ref(w0)
+            b_id, _ = unpack_wire_ref(w1)
+            a = scalar_ws_read_step(
+                workspace,
+                workspace_committed,
+                w0,
+                node_by_id=nb,
+                workspace_key_uid=wk,
+                use_previous=(a_id, uid, "in0") in fb,
+            )
+            b = scalar_ws_read_step(
+                workspace,
+                workspace_committed,
+                w1,
+                node_by_id=nb,
+                workspace_key_uid=wk,
+                use_previous=(b_id, uid, "in1") in fb,
+            )
+            workspace[slot] = eval_std_arithmetic(node.type_key, a, b)
         elif isinstance(node, Variable):
             if uid in stimmed:
                 continue

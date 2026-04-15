@@ -7,6 +7,9 @@
     <Element id="Sub" path="components/Sub/elementDescription.xml"/>
     <Element id="Mul" path="components/Mul/elementDescription.xml"/>
     <Element id="Div" path="components/Div/elementDescription.xml"/>
+    <Element id="Kennwert" path="components/Kennwert/elementDescription.xml"/>
+    <Element id="Kennlinie" path="components/Kennlinie/elementDescription.xml"/>
+    <Element id="Kennfeld" path="components/Kennfeld/elementDescription.xml"/>
   </elements>
   <Capabilities>
     <Capability id="pure_function"/>

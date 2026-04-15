@@ -92,7 +92,7 @@ J.2 Delay policy (Synarius Core implementation)
 K. Plugins and generators (cross-reference)
 --------------------------------------------------------------------------------
 
-The :doc:`../plugin_api` document defines plugin capabilities (e.g. compile-time and runtime hooks). **FMFL** is part of the **core behavioral contract**; plugins **MUST NOT** redefine FMFL semantics (see plugin API). Generators that emit target code from FMFL are **consumers** of the IR specified in :doc:`fmfl_v0_1`.
+The :doc:`../plugin_concept_v0_3_plugin_api` document defines plugin capabilities (e.g. compile-time and runtime hooks). **FMFL** is part of the **core behavioral contract**; plugins **MUST NOT** redefine FMFL semantics (see plugin API). Generators that emit target code from FMFL are **consumers** of the IR specified in :doc:`fmfl_v0_1`.
 
 --------------------------------------------------------------------------------
 L. References

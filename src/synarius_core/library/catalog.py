@@ -59,6 +59,8 @@ class ParsedElement:
     element_dir: Path
     ports: list[tuple[str, str, str]]  # kind, name, type
     fmfl: list[ParsedFmflRef]
+    diagram_icon_path: str | None = None  # path relative to element_dir
+    show_pin_names: bool = True
 
 
 @dataclass
@@ -70,6 +72,28 @@ class ParsedLibrary:
     description: str
     vendor: str
     elements: list[ParsedElement] = field(default_factory=list)
+
+
+def _is_repo_lib_std_root(root: Path) -> bool:
+    parts = root.resolve().parts
+    return len(parts) >= 2 and parts[-2].lower() == "lib" and parts[-1].lower() == "std"
+
+
+def _is_standard_library_package_root(root: Path) -> bool:
+    """Editable-layout FMF tree under ``synarius_core/standard_library`` (not ``Lib/std``)."""
+    return root.resolve().name.lower() == "standard_library" and (root / "libraryDescription.xml").is_file()
+
+
+def _library_mount_sort_key(parsed: ParsedLibrary) -> tuple[str, int, str]:
+    """Sort key for mounting: name, then priority so ``Lib/std`` wins over the package copy for ``std``."""
+    name_key = parsed.name.lower()
+    prio = 2
+    if parsed.name == "std":
+        if _is_repo_lib_std_root(parsed.root_path):
+            prio = 0
+        elif _is_standard_library_package_root(parsed.root_path):
+            prio = 1
+    return (name_key, prio, str(parsed.root_path).lower())
 
 
 class LibraryTreeNode:
@@ -256,6 +280,8 @@ def _parse_element_description(element_xml: Path, fallback_id: str) -> ParsedEle
     description = ""
     ports: list[tuple[str, str, str]] = []
     fmfl: list[ParsedFmflRef] = []
+    diagram_icon_path: str | None = None
+    show_pin_names: bool = True
 
     for child in r:
         if child.tag == "Description":
@@ -277,6 +303,13 @@ def _parse_element_description(element_xml: Path, fallback_id: str) -> ParsedEle
                     continue
                 prof = b.attrib.get("profile")
                 fmfl.append(ParsedFmflRef(file=f, profile=prof))
+        elif child.tag == "Graphics":
+            di = child.attrib.get("diagram_icon", "").strip()
+            if di:
+                diagram_icon_path = di
+            spn = child.attrib.get("show_pin_names", "true").strip().lower()
+            if spn == "false":
+                show_pin_names = False
 
     return ParsedElement(
         element_id=eid,
@@ -285,6 +318,8 @@ def _parse_element_description(element_xml: Path, fallback_id: str) -> ParsedEle
         element_dir=element_dir,
         ports=ports,
         fmfl=fmfl,
+        diagram_icon_path=diagram_icon_path,
+        show_pin_names=show_pin_names,
     )
 
 
@@ -323,6 +358,7 @@ class LibraryCatalog:
                 roots.append(p)
 
         seen: set[Path] = set()
+        parsed_by_path: list[ParsedLibrary] = []
         for root_path in roots:
             rp = root_path.resolve()
             if rp in seen:
@@ -333,14 +369,17 @@ class LibraryCatalog:
             except Exception as exc:
                 self.load_errors.append(f"{root_path}: {exc}")
                 continue
-            self.libraries.append(parsed)
+            parsed_by_path.append(parsed)
 
         lib_names_seen: set[str] = set()
-        for parsed in sorted(self.libraries, key=lambda lib: lib.name):
+        for parsed in sorted(parsed_by_path, key=_library_mount_sort_key):
             if parsed.name in lib_names_seen:
+                if parsed.name == "std" and _is_standard_library_package_root(parsed.root_path):
+                    continue
                 self.load_errors.append(f"Duplicate library name '{parsed.name}' skipped: {parsed.root_path}")
                 continue
             lib_names_seen.add(parsed.name)
+            self.libraries.append(parsed)
             lib_node = LibraryContainerNode(name=parsed.name, parent=self.root, parsed=parsed)
             self.root.children.append(lib_node)
             for elem in sorted(parsed.elements, key=lambda e: e.element_id):

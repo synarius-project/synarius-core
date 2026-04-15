@@ -21,6 +21,7 @@ from .equation_walk import (
     EqGeneric,
     EqOperator,
     EqOperatorIncomplete,
+    EqStdArithmetic,
     EqVarNoInput,
     EqVarWire,
     iter_equation_items,
@@ -95,6 +96,16 @@ def _collect_equation_lines(compiled: CompiledDataflow) -> tuple[list[tuple[str,
                 b = f"prev({b})"
             sym = _op_symbol(ev.op)
             lines.append(_EquationLine(f"  {ev.target_label} = {a} {sym} {b}"))
+        elif isinstance(ev, EqStdArithmetic):
+            a_id, a_pin = unpack_wire_ref(ev.in0)
+            b_id, b_pin = unpack_wire_ref(ev.in1)
+            a = _src_expr(nb, a_id, a_pin)
+            b = _src_expr(nb, b_id, b_pin)
+            if ev.in0_from_previous:
+                a = f"prev({a})"
+            if ev.in1_from_previous:
+                b = f"prev({b})"
+            lines.append(_EquationLine(f"  {ev.target_label} = {a} {ev.op_symbol} {b}"))
         elif isinstance(ev, EqFmu):
             lines.append(_EquationLine(f"  # {ev.target_label}: FMU step (runtime:fmu plugin)"))
         elif isinstance(ev, EqGeneric):

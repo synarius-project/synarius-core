@@ -1,4 +1,4 @@
-"""Plugin discovery, loading, and host integration (see ``docs/specifications/plugin_api.rst``)."""
+"""Plugin discovery, loading, and host integration (see ``docs/specifications/plugin_concept_v0_3_plugin_api.rst``)."""
 
 from synarius_core.plugins.element_type_registry import ElementTypeRegistry
 from synarius_core.plugins.element_types import (

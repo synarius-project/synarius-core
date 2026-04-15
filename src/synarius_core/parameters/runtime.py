@@ -15,6 +15,21 @@ PARAWIZ_SCRATCH_MARKER_ATTR = "parawiz_scratch_marker"
 PARAWIZ_TARGET_DATASET_NAME = "parawiz_target"
 
 
+class ParameterResolutionError(RuntimeError):
+    """Raised when a ``parameter_ref`` cannot be resolved against the active dataset.
+
+    Possible causes: no active dataset set; named dataset does not exist; path segment
+    within the dataset not found.
+    """
+
+
+class ParameterShapeError(RuntimeError):
+    """Raised when a resolved parameter has a shape, axis length, or monotonicity violation.
+
+    Fail-fast at ``engine.init()`` (CORE-ARCH-006).
+    """
+
+
 class ParameterRuntime:
     """Bridges model ``parameters`` subtree and :class:`ParametersRepository`.
 
@@ -761,4 +776,139 @@ class ParameterRuntime:
         if axis_idx >= rec.values.ndim:
             return 1
         return int(rec.values.shape[axis_idx])
+
+    # ---- engine-facing resolution API (lookup primitive support) -------------
+
+    def resolve_cal_param_node(self, parameter_ref: str) -> ComplexInstance:
+        """Navigate from the active dataset to the ``MODEL.CAL_PARAM`` node at *parameter_ref*.
+
+        Parameters
+        ----------
+        parameter_ref:
+            Path relative to ``@active_dataset`` (e.g. ``"group/TempCurve"``).
+
+        Raises
+        ------
+        ParameterResolutionError
+            When no active dataset is set or when the path cannot be traversed.
+        """
+        ds = self.active_dataset()
+        if ds is None:
+            raise ParameterResolutionError(
+                f"Cannot resolve parameter_ref '{parameter_ref}': no active dataset set."
+            )
+        node: ComplexInstance = ds
+        for segment in [s for s in parameter_ref.strip("/").split("/") if s]:
+            found: ComplexInstance | None = None
+            for child in node.children:
+                if isinstance(child, ComplexInstance) and child.name == segment:
+                    found = child
+                    break
+            if found is None:
+                raise ParameterResolutionError(
+                    f"Parameter ref '{parameter_ref}' not found in active dataset '{ds.name}': "
+                    f"segment '{segment}' missing."
+                )
+            node = found
+        return node
+
+    def get_scalar(self, parameter_id: UUID) -> float:
+        """Return the scalar value for a ``std.Kennwert`` parameter.
+
+        Raises
+        ------
+        ParameterShapeError
+            When the stored array is not scalar-shaped.
+        """
+        rec = self.repo.get_record(parameter_id)
+        v = rec.values
+        if v.ndim == 0:
+            return float(v.flat[0])
+        if v.ndim == 1 and v.shape[0] == 1:
+            return float(v[0])
+        raise ParameterShapeError(
+            f"param_scalar expects ndim==0 or shape==(1,), got shape={v.shape}."
+        )
+
+    def get_curve(self, parameter_id: UUID) -> tuple[np.ndarray, np.ndarray]:
+        """Return ``(axis, values)`` for a ``std.Kennlinie`` parameter (read-only views).
+
+        Raises
+        ------
+        ParameterShapeError
+            When ndim, axis length, minimum length, or monotonicity requirements are violated.
+        """
+        rec = self.repo.get_record(parameter_id)
+        v = rec.values.reshape(-1)
+        if rec.values.ndim != 1:
+            raise ParameterShapeError(
+                f"curve_lookup expects ndim==1, got shape={rec.values.shape}."
+            )
+        ax = rec.axes.get(0)
+        if ax is None:
+            raise ParameterShapeError(
+                "curve_lookup: parameter_axes must contain exactly one axis (axis_index 0)."
+            )
+        axis = ax.reshape(-1)
+        if len(axis) != v.shape[0]:
+            raise ParameterShapeError(
+                f"curve_lookup: len(axis_0)={len(axis)} != shape[0]={v.shape[0]}."
+            )
+        if len(axis) < 2:
+            raise ParameterShapeError(
+                f"curve_lookup: axis_0 must have at least 2 breakpoints, got {len(axis)}."
+            )
+        if not np.all(np.diff(axis) > 0):
+            raise ParameterShapeError(
+                "curve_lookup: axis_0 must be strictly monotone increasing."
+            )
+        return axis, v
+
+    def get_map(self, parameter_id: UUID) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Return ``(axis0, axis1, values)`` for a ``std.Kennfeld`` parameter (read-only views).
+
+        Raises
+        ------
+        ParameterShapeError
+            When ndim, axis lengths, minimum lengths, or monotonicity requirements are violated.
+        """
+        rec = self.repo.get_record(parameter_id)
+        v = rec.values
+        if v.ndim != 2:
+            raise ParameterShapeError(
+                f"map_lookup expects ndim==2, got shape={v.shape}."
+            )
+        ax0 = rec.axes.get(0)
+        ax1 = rec.axes.get(1)
+        if ax0 is None or ax1 is None:
+            raise ParameterShapeError(
+                "map_lookup: parameter_axes must contain axis_index 0 and 1."
+            )
+        axis0 = ax0.reshape(-1)
+        axis1 = ax1.reshape(-1)
+        if len(axis0) != v.shape[0]:
+            raise ParameterShapeError(
+                f"map_lookup: len(axis_0)={len(axis0)} != shape[0]={v.shape[0]}."
+            )
+        if len(axis1) != v.shape[1]:
+            raise ParameterShapeError(
+                f"map_lookup: len(axis_1)={len(axis1)} != shape[1]={v.shape[1]}."
+            )
+        if len(axis0) < 2:
+            raise ParameterShapeError(
+                f"map_lookup: axis_0 must have at least 2 breakpoints, got {len(axis0)}."
+            )
+        if len(axis1) < 2:
+            raise ParameterShapeError(
+                f"map_lookup: axis_1 must have at least 2 breakpoints, got {len(axis1)}."
+            )
+        if not np.all(np.diff(axis0) > 0):
+            raise ParameterShapeError(
+                "map_lookup: axis_0 must be strictly monotone increasing."
+            )
+        if not np.all(np.diff(axis1) > 0):
+            raise ParameterShapeError(
+                "map_lookup: axis_1 must be strictly monotone increasing."
+            )
+        return axis0, axis1, v
 

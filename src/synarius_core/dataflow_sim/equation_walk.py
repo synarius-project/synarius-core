@@ -8,6 +8,7 @@ from uuid import UUID
 
 from synarius_core.model import BasicOperator, ElementaryInstance, Variable
 
+from ._std_type_keys import STD_ARITHMETIC_OP, STD_PARAM_LOOKUP
 from .compiler import CompiledDataflow, FeedbackWire, elementary_has_fmu_path, unpack_wire_ref
 
 
@@ -67,13 +68,68 @@ class EqFmu:
 
 
 @dataclass(frozen=True)
+class EqStdArithmetic:
+    """Lib element from ``STD_ARITHMETIC_OP``: two inputs ``in0``/``in1``, one output ``out``."""
+
+    target_uid: UUID
+    target_label: str
+    op_symbol: str
+    in0: object
+    in1: object
+    in0_from_previous: bool
+    in1_from_previous: bool
+
+
+@dataclass(frozen=True)
 class EqGeneric:
     target_uid: UUID
     target_label: str
 
 
+@dataclass(frozen=True)
+class EqKennwert:
+    """``std.Kennwert``: scalar parameter lookup — no inputs, one output ``out``."""
+
+    target_uid: UUID
+    target_label: str
+    parameter_ref: str
+
+
+@dataclass(frozen=True)
+class EqKennlinie:
+    """``std.Kennlinie``: 1-D curve lookup — input ``x``, output ``out``."""
+
+    target_uid: UUID
+    target_label: str
+    parameter_ref: str
+    in_x: object  # incoming wire-ref for pin "x"
+    in_x_from_previous: bool
+
+
+@dataclass(frozen=True)
+class EqKennfeld:
+    """``std.Kennfeld``: 2-D map lookup — inputs ``x`` and ``y``, output ``out``."""
+
+    target_uid: UUID
+    target_label: str
+    parameter_ref: str
+    in_x: object  # incoming wire-ref for pin "x"
+    in_y: object  # incoming wire-ref for pin "y"
+    in_x_from_previous: bool
+    in_y_from_previous: bool
+
+
 EquationItem = (
-    EqVarWire | EqVarNoInput | EqOperator | EqOperatorIncomplete | EqFmu | EqGeneric
+    EqVarWire
+    | EqVarNoInput
+    | EqOperator
+    | EqOperatorIncomplete
+    | EqFmu
+    | EqStdArithmetic
+    | EqKennwert
+    | EqKennlinie
+    | EqKennfeld
+    | EqGeneric
 )
 
 
@@ -132,5 +188,65 @@ def iter_equation_items(compiled: CompiledDataflow) -> Iterator[EquationItem]:
                 )
         elif isinstance(node, ElementaryInstance) and elementary_has_fmu_path(node):
             yield EqFmu(target_uid=uid, target_label=label(node))
+        elif isinstance(node, ElementaryInstance) and node.type_key in STD_ARITHMETIC_OP:
+            nm = label(node)
+            pins = inc.get(uid, {})
+            w0, w1 = pins.get("in0"), pins.get("in1")
+            if w0 is None or w1 is None:
+                yield EqOperatorIncomplete(target_uid=uid, target_label=nm)
+            else:
+                a_id, _ = unpack_wire_ref(w0)
+                b_id, _ = unpack_wire_ref(w1)
+                yield EqStdArithmetic(
+                    target_uid=uid,
+                    target_label=nm,
+                    op_symbol=STD_ARITHMETIC_OP[node.type_key],
+                    in0=w0,
+                    in1=w1,
+                    in0_from_previous=_is_feedback(compiled, (a_id, uid, "in0")),
+                    in1_from_previous=_is_feedback(compiled, (b_id, uid, "in1")),
+                )
+        elif isinstance(node, ElementaryInstance) and node.type_key in STD_PARAM_LOOKUP:
+            nm = label(node)
+            try:
+                parameter_ref = str(node.get("parameter_ref") or "").strip()
+            except Exception:
+                parameter_ref = ""
+            pins = inc.get(uid, {})
+            tk = node.type_key
+            if tk == "std.Kennwert":
+                yield EqKennwert(target_uid=uid, target_label=nm, parameter_ref=parameter_ref)
+            elif tk == "std.Kennlinie":
+                wx = pins.get("x")
+                if wx is None:
+                    yield EqOperatorIncomplete(target_uid=uid, target_label=nm)
+                else:
+                    x_id, _ = unpack_wire_ref(wx)
+                    yield EqKennlinie(
+                        target_uid=uid,
+                        target_label=nm,
+                        parameter_ref=parameter_ref,
+                        in_x=wx,
+                        in_x_from_previous=_is_feedback(compiled, (x_id, uid, "x")),
+                    )
+            elif tk == "std.Kennfeld":
+                wx = pins.get("x")
+                wy = pins.get("y")
+                if wx is None or wy is None:
+                    yield EqOperatorIncomplete(target_uid=uid, target_label=nm)
+                else:
+                    x_id, _ = unpack_wire_ref(wx)
+                    y_id, _ = unpack_wire_ref(wy)
+                    yield EqKennfeld(
+                        target_uid=uid,
+                        target_label=nm,
+                        parameter_ref=parameter_ref,
+                        in_x=wx,
+                        in_y=wy,
+                        in_x_from_previous=_is_feedback(compiled, (x_id, uid, "x")),
+                        in_y_from_previous=_is_feedback(compiled, (y_id, uid, "y")),
+                    )
+            else:
+                yield EqGeneric(target_uid=uid, target_label=nm)
         else:
             yield EqGeneric(target_uid=uid, target_label=label(node))

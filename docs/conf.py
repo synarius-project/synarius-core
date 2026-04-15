@@ -10,7 +10,7 @@ copyright = "2026, Synarius Contributors"
 # snapshot (e.g. FMF/FMFL spec addendum). Independent of the Python package version
 # in ``pyproject.toml`` until those are unified intentionally.
 version = "0.2"
-release = "0.2.1"
+release = "0.2.2"
 extensions = ["sphinx_needs", "sphinxcontrib.plantuml"]
 html_theme = "zerovm"
 html_theme_path = [zerovm_sphinx_theme.theme_path]

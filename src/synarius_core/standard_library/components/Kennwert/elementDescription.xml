@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ElementDescription id="Kennwert" name="Kennwert">
+  <Description>Scalar parameter lookup. Resolves a single numeric value from the active dataset.
+  Output is the constant scalar value of the referenced calibration parameter.</Description>
+  <Ports>
+    <Port kind="out" name="out" type="real"/>
+  </Ports>
+  <Parameters>
+    <Parameter name="parameter_ref" type="string" default="">
+      <Description>Path to the MODEL.CAL_PARAM node relative to @active_dataset (e.g. "group/MyValue").</Description>
+    </Parameter>
+  </Parameters>
+  <Graphics icon16="resources/icons/value_16.svg"
+            icon32="resources/icons/value_32.svg"
+            icon64="resources/icons/value_64.svg"
+            diagram_icon="resources/icons/value_32.svg"/>
+  <!-- No Behavior block: semantics are defined by the param_scalar lookup primitive
+       (compiler_lowering_rules.rst). The DataflowCompilePass handles this type_key directly. -->
+</ElementDescription>

@@ -10,6 +10,7 @@ from uuid import UUID
 
 from synarius_core.model import BasicOperator, Connector, ElementaryInstance, Model, Variable
 
+from ._std_type_keys import STD_ARITHMETIC_OP, STD_PARAM_LOOKUP
 from .context import SimulationContext
 
 if TYPE_CHECKING:
@@ -62,6 +63,8 @@ class CompiledDataflow:
     feedback_edges: frozenset[FeedbackWire] = field(default_factory=frozenset)
     """Maps each diagram instance id to the UUID key used in ``scalar_workspace`` (identity = default)."""
     workspace_key_uid: dict[UUID, UUID] = field(default_factory=dict)
+    """Node ids of ``std.Kennwert`` / ``std.Kennlinie`` / ``std.Kennfeld`` blocks (STD_PARAM_LOOKUP)."""
+    param_bound_node_ids: frozenset[UUID] = field(default_factory=frozenset)
 
 
 @dataclass(frozen=True)
@@ -602,6 +605,10 @@ class DataflowCompilePass:
     ) -> None:
         for n in node_by_id.values():
             if isinstance(n, ElementaryInstance) and not isinstance(n, (Variable, BasicOperator)):
+                if n.type_key in STD_ARITHMETIC_OP:
+                    continue
+                if n.type_key in STD_PARAM_LOOKUP:
+                    continue
                 ctx.diagnostics.append(
                     "Dataflow graph includes generic elementary block(s); simple_scalar runtime does not execute them (outputs stay at initial scalar slot)."
                 )
@@ -674,12 +681,20 @@ class DataflowCompilePass:
             fmu_ids=fmu_ids,
             diagnostics=ctx.diagnostics,
         )
+        param_bound_ids = frozenset(
+            uid
+            for uid, n in node_by_id.items()
+            if isinstance(n, ElementaryInstance)
+            and not isinstance(n, (Variable, BasicOperator))
+            and n.type_key in STD_PARAM_LOOKUP
+        )
         ctx.artifacts["dataflow"] = CompiledDataflow(
             topo_order=topo,
             node_by_id=node_by_id,
             incoming=incoming_ro,
             feedback_edges=feedback_frozen,
             workspace_key_uid=dict(workspace_key_uid),
+            param_bound_node_ids=param_bound_ids,
         )
 
     def run(self, ctx: SimulationContext) -> SimulationContext:

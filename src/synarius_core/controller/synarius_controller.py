@@ -65,6 +65,26 @@ from .parse_helpers import (
 )
 
 
+def _strip_root_diagram_for_load_script(model: Model) -> None:
+    """Remove diagram leaves under ``root`` so a ``load`` script does not stack on a cloned diagram."""
+    root = model.root
+    for ch in list(root.children):
+        if isinstance(ch, Connector) and ch.id is not None:
+            model.delete(root, ch.id)
+    for ch in list(root.children):
+        oid = ch.id
+        if oid is None:
+            continue
+        if isinstance(ch, Variable):
+            model.delete(root, oid)
+        elif isinstance(ch, BasicOperator):
+            model.delete(root, oid)
+        elif isinstance(ch, DataViewer):
+            model.delete(root, oid)
+        elif isinstance(ch, ElementaryInstance):
+            model.delete(root, oid)
+
+
 class SynariusController:
     """Text-command controller implementing core protocol commands."""
 
@@ -99,6 +119,8 @@ class SynariusController:
             "@latent": self.model.root,
             "@signals": self.model.root,
             "@libraries": self.library_catalog.root,
+            # Dynamic alias: resolved at evaluation time via ParameterRuntime.
+            "@active_dataset": lambda: self.model.parameter_runtime().active_dataset(),
         }
         self.refresh_element_type_handlers()
         #: Set when ``load <script>`` succeeds; used to resolve relative ``fmu.path`` during simulation.
@@ -174,6 +196,11 @@ class SynariusController:
             out = self._dispatch_command(cmd, args)
             return out
 
+        if cmd == "new" and args and args[0] in ("parameter", "curve", "map"):
+            out, pair = self._cmd_new_kenngroesse(args)
+            self._undo_state.record_pair(pair)
+            return out
+
         if cmd == "new":
             out = self._dispatch_command(cmd, args)
             pair = self._undo_pair_after_new(raw, out)
@@ -201,6 +228,14 @@ class SynariusController:
         out = self._dispatch_command(cmd, args)
         self._undo_state.record_pair(pair)
         return out
+
+    def has_undoable_changes(self) -> bool:
+        """True when the undo stack holds at least one transaction (since last ``load`` / ``import`` / clear)."""
+        return bool(self._undo_state.undo_stack)
+
+    def clear_undo_history(self) -> None:
+        """Clear undo and redo stacks without changing the model (for example after a successful project save)."""
+        self._undo_state.clear()
 
     def _dispatch_command(self, cmd: str, args: list[str]) -> str | None:
         handler = self._COMMAND_HANDLERS.get(cmd)
@@ -672,6 +707,22 @@ class SynariusController:
                     return pin_map_from_library_ports(elem.ports)
         return None
 
+    def _library_appearance_for_type_key(self, type_key: str) -> tuple[str | None, bool] | None:
+        """Return ``(abs_icon_path, show_pin_names)`` from the library element descriptor, or ``None``."""
+        if "." not in type_key:
+            return None
+        lib_name, elem_id = type_key.split(".", 1)
+        for lib in self.library_catalog.libraries:
+            if lib.name != lib_name:
+                continue
+            for elem in lib.elements:
+                if elem.element_id == elem_id:
+                    icon_abs: str | None = None
+                    if elem.diagram_icon_path:
+                        icon_abs = str((elem.element_dir / elem.diagram_icon_path).resolve())
+                    return icon_abs, elem.show_pin_names
+        return None
+
     def _resolve_fmu_file_for_inspect(self, raw_path: str) -> Path:
         """Resolve a ``.fmu`` path for reading; same script-relative rule as ``import -dcm=…`` / ``execute_script``."""
         raw = str(raw_path).strip()
@@ -913,7 +964,7 @@ class SynariusController:
             if self._fmu_kwargs_need_autofill_from_archive(ports_kw, vars_kw):
                 self._autofill_fmu_elementary_from_path(el, str(fmu_path_kw), type_key=tk_s)
             return el
-        return ElementaryInstance(
+        el = ElementaryInstance(
             name=el_name,
             type_key=tk_s,
             pin=pin_seed,
@@ -921,6 +972,14 @@ class SynariusController:
             size=size_el,
             obj_id=explicit_id,
         )
+        appearance = self._library_appearance_for_type_key(tk_s)
+        if appearance is not None:
+            icon_abs, show_pn = appearance
+            if icon_abs:
+                el.attribute_dict["diagram.icon_path"] = icon_abs
+            if not show_pn:
+                el.attribute_dict["diagram.show_pin_names"] = "false"
+        return el
 
     def _cmd_new_fmu_instance(self, positional: list[str], kwargs: dict[str, str], explicit_id: UUID | None) -> ElementaryInstance:
         fm_name, pos_fm, size_fm = self._parse_placed_elementary(positional, label="new FmuInstance")
@@ -988,6 +1047,140 @@ class SynariusController:
         obj = ComplexInstance(name=positional[0], obj_id=explicit_id)
         obj.attribute_dict["type"] = "MODEL.CAL_PARAM"
         return obj
+
+    def _cmd_new_kenngroesse(
+        self, args: list[str]
+    ) -> tuple[str, "UndoRedoPair | None"]:
+        """Compound command: create a diagram block + matching MODEL.CAL_PARAM in one step.
+
+        ``args[0]`` is ``"parameter"``, ``"curve"``, or ``"map"``.
+        Creates both the ``std.Kennwert``/``std.Kennlinie``/``std.Kennfeld`` elementary and
+        a same-named ``MODEL.CAL_PARAM`` under the active dataset, then sets ``parameter_ref``
+        on the block.  Raises :class:`CommandError` when no active dataset is set.
+
+        Returns ``(el.hash_name, undo_pair)`` where ``undo_pair`` moves both objects to trash.
+        """
+        import numpy as np
+
+        _TYPE_KEY = {"parameter": "std.Kennwert", "curve": "std.Kennlinie", "map": "std.Kennfeld"}
+        _CATEGORY = {"parameter": "VALUE", "curve": "CURVE", "map": "MAP"}
+        _AXIS_NAMES: dict[str, dict[int, str]] = {
+            "parameter": {},
+            "curve": {0: "x"},
+            "map": {0: "x", 1: "y"},
+        }
+
+        type_name = args[0]
+        rest = args[1:]
+        kwargs = parse_kw_pairs(rest)
+        positional = [t for t in rest if "=" not in t]
+        explicit_id = self._pop_optional_uuid_kw(kwargs, "id")
+
+        if not isinstance(self.current, ComplexInstance):
+            raise CommandError("new requires a model container as cwd (e.g. cd @main first).")
+
+        type_key = _TYPE_KEY[type_name]
+        category = _CATEGORY[type_name]
+        axis_names = _AXIS_NAMES[type_name]
+
+        name, pos, size = self._parse_placed_elementary(positional, label=f"new {type_name}")
+
+        # --- default parameter data ---
+        if type_key == "std.Kennwert":
+            values: np.ndarray = np.array(0.0)
+            axes: dict[int, np.ndarray] = {}
+        elif type_key == "std.Kennlinie":
+            values = np.zeros(4, dtype=float)
+            axes = {0: np.array([1.0, 2.0, 3.0, 4.0])}
+        else:  # std.Kennfeld
+            values = np.zeros((4, 4), dtype=float)
+            axes = {0: np.array([1.0, 2.0, 3.0, 4.0]), 1: np.array([1.0, 2.0, 3.0, 4.0])}
+        axis_units = {k: "" for k in axis_names}
+
+        # --- active dataset (optional) ---
+        pr = self.model.parameter_runtime()
+        ds = pr.active_dataset()
+
+        # --- build elementary ---
+        lib_pins = self._library_pin_seed_for_type_key(type_key)
+        el = ElementaryInstance(
+            name=name,
+            type_key=type_key,
+            pin=lib_pins,
+            position=pos,
+            size=size,
+            obj_id=explicit_id,
+        )
+        appearance = self._library_appearance_for_type_key(type_key)
+        if appearance is not None:
+            icon_abs, show_pn = appearance
+            if icon_abs:
+                el.attribute_dict["diagram.icon_path"] = icon_abs
+            if not show_pn:
+                el.attribute_dict["diagram.show_pin_names"] = "false"
+
+        # --- attach elementary (diagram side) ---
+        try:
+            self.model.attach(
+                el,
+                parent=self.current,
+                reserve_existing=(explicit_id is not None),
+                remap_ids=False,
+            )
+        except DuplicateIdError as exc:
+            raise CommandError(str(exc)) from exc
+
+        # --- cal_param (only when an active dataset exists) ---
+        cal_param: ComplexInstance | None = None
+        if ds is not None:
+            cal_param = ComplexInstance(name=name)
+            try:
+                self.model.attach(cal_param, parent=ds, reserve_existing=False, remap_ids=False)
+            except DuplicateIdError as exc:
+                if el.parent is not None and el.id is not None:
+                    try:
+                        self.model.delete(el.parent, el.id)
+                    except Exception:
+                        pass
+                raise CommandError(str(exc)) from exc
+
+            try:
+                pr.register_cal_param_node_from_import(
+                    cal_param,
+                    data_set_id=ds.id,
+                    category=category,
+                    values=values,
+                    axes=axes,
+                    axis_names=axis_names,
+                    axis_units=axis_units,
+                )
+            except (ValueError, CommandError) as exc:
+                for obj in (cal_param, el):
+                    if obj.parent is not None and obj.id is not None:
+                        try:
+                            self.model.delete(obj.parent, obj.id)
+                        except Exception:
+                            pass
+                raise CommandError(str(exc)) from exc
+
+            # wire parameter_ref only when the CalParam was actually created
+            el.attribute_dict["parameter_ref"] = name
+
+        # --- compound undo pair ---
+        if not self._undo_recording_enabled:
+            return el.hash_name, None
+
+        el_hash = el.hash_name
+        trash_p = self._container_path_for_mv(self.model.get_trash_folder())
+        back_el = self._container_path_for_mv(self.current)
+        undo = [f"mv {shlex.quote(el_hash)} {shlex.quote(trash_p)}"]
+        redo = [f"mv {shlex.quote(el_hash)} {shlex.quote(back_el)}"]
+        if cal_param is not None and ds is not None:
+            cp_hash = cal_param.hash_name
+            back_cp = self._container_path_for_mv(ds)
+            undo.append(f"mv {shlex.quote(cp_hash)} {shlex.quote(trash_p)}")
+            redo.append(f"mv {shlex.quote(cp_hash)} {shlex.quote(back_cp)}")
+        return el_hash, (undo, redo)
 
     def _cmd_new_resolve_cal_param_data_set(self, kwargs: dict[str, str]) -> UUID | None:
         ds_id2: UUID | None = None
@@ -2044,6 +2237,7 @@ class SynariusController:
     ) -> tuple[Any, list[str]]:
         _ = id_policy, sel_ids
         temp_model = self.model.clone()
+        _strip_root_diagram_for_load_script(temp_model)
         temp_controller = SynariusController(
             temp_model,
             library_catalog=self.library_catalog,
@@ -2282,7 +2476,10 @@ class SynariusController:
             alias, _, rest = path.partition("/")
             if alias not in self.alias_roots:
                 raise CommandError(f"Unknown alias root '{alias}'.")
-            start = self.alias_roots[alias]
+            raw = self.alias_roots[alias]
+            start = raw() if callable(raw) else raw
+            if start is None:
+                raise CommandError(f"Alias '{alias}' resolved to None (no active dataset set?).")
             tail = rest
         elif path.startswith("/"):
             start = self.model.root

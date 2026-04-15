@@ -182,6 +182,22 @@ where ``<stem>`` is a shared prefix (e.g. element id or icon id). The ``_16`` / 
 
 Processors **MAY** accept a legacy single-attribute form ``icon=".../add_32.svg"`` and **MAY** resolve sibling ``add_16.svg`` / ``add_64.svg`` by stem substitution; portable libraries **SHOULD NOT** rely on that.
 
+**Diagram icon (optional):** an element **MAY** declare a single preferred icon for on-diagram display via the ``diagram_icon`` attribute on ``<Graphics>``. When present, hosts **SHOULD** render this SVG *instead of the instance name* inside the diagram block (compact icon mode). The path is relative to the element folder (same root as ``icon16`` / ``icon32`` / ``icon64``).
+
+**Pin-name visibility (optional):** the ``show_pin_names`` attribute on ``<Graphics>`` controls whether pin-name labels are displayed inside the diagram block. Allowed values: ``"true"`` (default, labels shown) and ``"false"`` (labels hidden). Hosts **SHALL** treat a missing attribute as ``"true"``.
+
+These two attributes **MAY** appear on the same ``<Graphics>`` element alongside ``icon16``/``icon32``/``icon64``:
+
+.. code-block:: xml
+
+   <Graphics icon16="resources/icons/add_16.svg"
+             icon32="resources/icons/add_32.svg"
+             icon64="resources/icons/add_64.svg"
+             diagram_icon="resources/icons/add_32.svg"
+             show_pin_names="false"/>
+
+**Rationale:** compact operator-like rendering (glyph only, no pin labels) is the desired diagram style for simple arithmetic primitives. The same SVG already shipped as ``icon32`` doubles as the diagram icon, so no extra asset is needed.
+
 C.3.2 Behavior: FMFL references (normative)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
