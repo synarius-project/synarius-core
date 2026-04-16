@@ -15,6 +15,7 @@ Specifications
    parameters_duckdb_sot_provisional
    spdm_v0_1
    kennlinien_kennfelder_concept
+   attribute_config_concept
    compiler_lowering_rules
    fmf_fmfl/index
 
