@@ -1131,39 +1131,47 @@ class SynariusController:
             raise CommandError(str(exc)) from exc
 
         # --- cal_param (only when an active dataset exists) ---
+        # If a parameter with the same name already exists in the dataset (e.g. imported from DCM),
+        # reuse it instead of creating a duplicate.  cal_param stays None so the undo pair does not
+        # attempt to delete a pre-existing entry.
         cal_param: ComplexInstance | None = None
         if ds is not None:
-            cal_param = ComplexInstance(name=name)
-            try:
-                self.model.attach(cal_param, parent=ds, reserve_existing=False, remap_ids=False)
-            except DuplicateIdError as exc:
-                if el.parent is not None and el.id is not None:
-                    try:
-                        self.model.delete(el.parent, el.id)
-                    except Exception:
-                        pass
-                raise CommandError(str(exc)) from exc
-
-            try:
-                pr.register_cal_param_node_from_import(
-                    cal_param,
-                    data_set_id=ds.id,
-                    category=category,
-                    values=values,
-                    axes=axes,
-                    axis_names=axis_names,
-                    axis_units=axis_units,
-                )
-            except (ValueError, CommandError) as exc:
-                for obj in (cal_param, el):
-                    if obj.parent is not None and obj.id is not None:
+            existing_cp = next(
+                (c for c in ds.children if isinstance(c, ComplexInstance) and c.name == name),
+                None,
+            )
+            if existing_cp is None:
+                cal_param = ComplexInstance(name=name)
+                try:
+                    self.model.attach(cal_param, parent=ds, reserve_existing=False, remap_ids=False)
+                except DuplicateIdError as exc:
+                    if el.parent is not None and el.id is not None:
                         try:
-                            self.model.delete(obj.parent, obj.id)
+                            self.model.delete(el.parent, el.id)
                         except Exception:
                             pass
-                raise CommandError(str(exc)) from exc
+                    raise CommandError(str(exc)) from exc
 
-            # wire parameter_ref only when the CalParam was actually created
+                try:
+                    pr.register_cal_param_node_from_import(
+                        cal_param,
+                        data_set_id=ds.id,
+                        category=category,
+                        values=values,
+                        axes=axes,
+                        axis_names=axis_names,
+                        axis_units=axis_units,
+                    )
+                except (ValueError, CommandError) as exc:
+                    for obj in (cal_param, el):
+                        if obj.parent is not None and obj.id is not None:
+                            try:
+                                self.model.delete(obj.parent, obj.id)
+                            except Exception:
+                                pass
+                    raise CommandError(str(exc)) from exc
+
+            # wire parameter_ref in both cases (new or reused parameter)
             el.attribute_dict["parameter_ref"] = name
 
         # --- compound undo pair ---
