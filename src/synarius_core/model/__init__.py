@@ -3,7 +3,7 @@
 from synarius_core.variable_naming import validate_pin_name
 from synarius_core.variable_registry import VariableNameRegistry
 
-from .attribute_dict import AttributeDict
+from .attribute_dict import AttributeDict, AttributeEntry
 from .attribute_path import join_attribute_path, split_attribute_path
 from .element_type import ModelElementType
 from .data_model import (
@@ -40,6 +40,7 @@ from .data_model import (
 __all__ = [
     "VariableNameRegistry",
     "AttributeDict",
+    "AttributeEntry",
     "split_attribute_path",
     "join_attribute_path",
     "validate_pin_name",

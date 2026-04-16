@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
 from synarius_core.variable_naming import validate_pin_name
 
-from .attribute_dict import AttributeDict
+from .attribute_dict import AttributeDict, AttributeEntry
 from .attribute_path import deep_copy_mapping_tree, split_attribute_path
 from .element_type import ModelElementType
 from .geometry import Point2D, Size2D
@@ -155,13 +155,13 @@ class BaseObject:
         )
         self.attribute_dict.set_virtual(
             "created_at",
-            getter=lambda: dict.__getitem__(self.attribute_dict, "created_at")[0],
+            getter=lambda: dict.__getitem__(self.attribute_dict, "created_at").value,
             setter=None,
             writable=False,
         )
         self.attribute_dict.set_virtual(
             "updated_at",
-            getter=lambda: dict.__getitem__(self.attribute_dict, "updated_at")[0],
+            getter=lambda: dict.__getitem__(self.attribute_dict, "updated_at").value,
             setter=None,
             writable=False,
         )
@@ -209,7 +209,7 @@ class BaseObject:
         dict.__setitem__(
             self.attribute_dict,
             "updated_at",
-            (_utcnow(), None, None, True, False),
+            AttributeEntry.stored(_utcnow()),
         )
 
     def get(self, key: str) -> Any:

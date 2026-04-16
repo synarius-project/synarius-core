@@ -15,6 +15,7 @@ import math
 from typing import Final
 
 from synarius_core.model import Variable
+from synarius_core.model.attribute_dict import AttributeEntry
 
 _STIM_KINDS = frozenset({"none", "constant", "ramp", "sine", "step"})
 
@@ -84,7 +85,7 @@ def register_stim_attribute_if_missing(var: Variable, key: str) -> None:
         return
     if key not in _STIM_ALL_KNOWN_DEFAULTS:
         return
-    dict.__setitem__(var.attribute_dict, key, (_STIM_ALL_KNOWN_DEFAULTS[key], None, None, True, True))
+    dict.__setitem__(var.attribute_dict, key, AttributeEntry.stored(_STIM_ALL_KNOWN_DEFAULTS[key], writable=True))
 
 
 def on_legacy_stim_parameter_set(var: Variable) -> None:

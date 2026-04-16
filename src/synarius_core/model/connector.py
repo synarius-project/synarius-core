@@ -1,3 +1,14 @@
+"""Connector domain object: source/target pins and orthogonal bend routing.
+
+``_orthogonal_bends`` stores bend coordinates *relative* to the source-pin position
+(even indices = x-offset from sx, odd indices = y-offset from sy).  The virtual attribute
+``orthogonal_bends`` exposes and accepts absolute scene coordinates; the setter converts via
+``connector_source_pin_diagram_xy`` from ``diagram_geometry``.
+
+For the full storage format, the trailing-y stripping rule, and the dual-path invariant that
+must be maintained between this module and ``synarius-studio/diagram/dataflow_items.py``, see
+``synarius-studio/docs/developer/connector_rendering.rst``.
+"""
 from __future__ import annotations
 
 from typing import Any, Iterable
@@ -87,6 +98,11 @@ class Connector(BaseObject):
             sx, sy = xy_src
             tx, ty = xy_tgt
             abs_list = canonicalize_absolute_bends(sx, sy, tx, ty, abs_list)
+            # Strip trailing y-coordinate: the final approach y is always derived from the
+            # target pin's ty by the routing finish functions, so storing it explicitly is
+            # redundant and causes extra visible steps on imprecise placement.
+            if len(abs_list) >= 2 and len(abs_list) % 2 == 0:
+                abs_list = abs_list[:-1]
             self._orthogonal_bends = bends_absolute_to_relative(sx, sy, abs_list)
         elif xy_src is not None:
             sx, sy = xy_src

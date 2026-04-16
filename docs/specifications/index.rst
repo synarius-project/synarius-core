@@ -6,6 +6,7 @@ Specifications
 
    core_type_system
    attribute_path_semantics
+   attribute_dict
    pin_model
    library_catalog
    plugin_concept_v0_3

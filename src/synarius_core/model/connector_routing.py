@@ -71,14 +71,18 @@ def orthogonal_drag_segments(
 
     Each entry is ``(x1, y1, x2, y2, bend_index, axis)`` with ``axis`` ``"x"`` or ``"y"``:
     moving the mouse along that axis updates ``bends[bend_index]``.
-    Skips the first leg (source pin stub); includes the final approach when it matches the bend.
+    Skips the first leg (source pin stub) and the last leg (approach to the target pin).
+    The last approach segment is excluded because its visual position is always forced to the
+    target pin's coordinate by the finish functions in :func:`orthogonal_polyline` and therefore
+    dragging it has no visible effect.
     """
     if not bends:
         return []
     pts = polyline_for_endpoints(sx, sy, tx, ty, bends)
     bi = 0
     out: list[tuple[float, float, float, float, int, str]] = []
-    for i in range(1, len(pts) - 1):
+    # range(1, len(pts)-2): skip pts[0]→pts[1] (source stub) and pts[-2]→pts[-1] (target approach)
+    for i in range(1, len(pts) - 2):
         if bi >= len(bends):
             break
         ax, ay = pts[i]

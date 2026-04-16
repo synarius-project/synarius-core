@@ -85,6 +85,8 @@ sphinx-build -b html docs docs/_build/html
 
 Open ``docs/_build/html/index.html`` in a browser.
 
+Draft specifications in-repo include **AttributeDict / ``AttributeEntry`` refactor (frozen dataclass + optional typing)** — see ``docs/specifications/attribute_entry_typing_refactor_concept.rst`` and ``docs/developer/attribute_dict_contributor_notes.rst``. For a separate local output tree (e.g. to avoid overwriting an existing ``html`` build), use ``sphinx-build -b html docs docs/_build/html_local``.
+
 ## Branching Strategy
 
 This repository uses a simple branching model that fits a solo-developer phase and can be tightened later without changing the overall flow.

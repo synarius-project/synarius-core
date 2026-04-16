@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Iterable, cast
 
+from .attribute_dict import AttributeEntry
 from .attribute_path import deep_copy_mapping_tree
 from .base import BaseObject
 from .complex_instance import ComplexInstance
@@ -84,7 +85,7 @@ def _clone_for_paste(obj: BaseObject, *, keep_ids: bool) -> BaseObject:
             dict.__setitem__(
                 el.attribute_dict,
                 "fmu",
-                (deep_copy_mapping_tree(fm), None, None, True, True),
+                AttributeEntry.stored(deep_copy_mapping_tree(fm), writable=True),
             )
         return el
 

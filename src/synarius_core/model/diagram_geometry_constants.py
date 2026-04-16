@@ -1,4 +1,12 @@
-"""Scene/layout constants and low-level helpers for ``diagram_geometry`` (Studio alignment)."""
+"""Scene/layout constants and low-level helpers for ``diagram_geometry`` (Studio alignment).
+
+Each constant that mirrors a value from ``synarius-studio/src/synarius_studio/diagram/dataflow_items.py``
+carries a comment naming the studio counterpart.  Keep them in sync: a divergence causes a
+pixel-level mismatch between the core's pin-position calculation and the studio's rendered position,
+which manifests as connector bend drift after drag-release.
+
+See ``synarius-studio/docs/developer/connector_rendering.rst`` for context.
+"""
 
 from __future__ import annotations
 
@@ -28,6 +36,14 @@ ELEMENTARY_LIB_HEADER_GRAPHIC_HEIGHT_SCENE = 0.0
 _VARIABLE_WIDTH = 6.0 * _MODULE
 _VARIABLE_HEIGHT = 2.0 * _MODULE
 _OPERATOR_SIZE = 3.0 * _MODULE
+# Pin label layout for multi-pin elementary lib blocks (FMU / same family).
+# Must match synarius-studio ``dataflow_items``: _FMU_PIN_LABEL_EDGE_INSET, _FMU_PIN_LABEL_CENTER_GAP,
+# and ``FmuBlockItem.__pin_label_font`` pixel size (``max(10, int(MODULE * 1.15))``).
+_FMU_PIN_LABEL_EDGE_INSET = _MODULE * 0.32
+_FMU_PIN_LABEL_CENTER_GAP = _MODULE * 1.2
+_FMU_PIN_LABEL_FONT_PS = max(10, int(_MODULE * 1.15))
+# Lookup block (Kennlinie / Kennfeld): fixed-size square; must match studio ``LOOKUP_BLOCK_SIZE``.
+_LOOKUP_BLOCK_SIZE = 6.0 * _MODULE
 
 
 def _approx_text_metrics(name: str, pixel_size: float) -> tuple[float, float]:

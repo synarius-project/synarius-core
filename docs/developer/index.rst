@@ -7,4 +7,5 @@ Hinweise für Mitwirkende und CI. Ein vollständiger Build dieses Abschnitts set
    :maxdepth: 2
 
    programming_guidelines
+   attribute_dict_contributor_notes
    code_coverage_overview

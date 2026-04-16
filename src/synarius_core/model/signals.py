@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Iterable
 from uuid import UUID
 
+from .attribute_dict import AttributeEntry
 from .attribute_path import split_attribute_path
 from .base import BaseObject
 from .complex_instance import ComplexInstance
@@ -54,13 +55,13 @@ class VariableMappingEntry(BaseObject):
             obj_id=obj_id,
             parent=parent,
         )
-        dict.__setitem__(self.attribute_dict, "variable_name", (variable_name, None, None, True, False))
-        dict.__setitem__(self.attribute_dict, "mapped_signal", (mapped_signal, None, None, True, True))
+        dict.__setitem__(self.attribute_dict, "variable_name", AttributeEntry.stored(variable_name, writable=False))
+        dict.__setitem__(self.attribute_dict, "mapped_signal", AttributeEntry.stored(mapped_signal, writable=True))
 
     def _mirror_mapped_signal_from_registry(self, signal: str) -> None:
         """Update stored ``mapped_signal`` from the SQL registry without writing the registry again."""
         text = signal if (signal and str(signal).strip() not in {"", "None"}) else "None"
-        dict.__setitem__(self.attribute_dict, "mapped_signal", (text, None, None, True, True))
+        dict.__setitem__(self.attribute_dict, "mapped_signal", AttributeEntry.stored(text, writable=True))
         self._touch()
 
     def get(self, key: str) -> Any:

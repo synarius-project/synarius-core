@@ -5,6 +5,7 @@ from uuid import UUID
 
 from synarius_core.variable_registry import VariableNameRegistry
 
+from .attribute_dict import AttributeEntry
 from .base import BaseObject, DetachedObjectError, ModelContext
 from .clone import _clone_for_paste, _iter_subtree
 from .complex_instance import ComplexInstance
@@ -47,20 +48,20 @@ class Model:
         dict.__setitem__(
             self.root.attribute_dict,
             "output_color",
-            ("#ADD8E6", None, None, True, True),  # default: light blue
+            AttributeEntry.stored("#ADD8E6", writable=True),  # default: light blue
         )
 
     def _ensure_simulation_mode_attribute(self) -> None:
         """Studio/console: ``set @main.simulation_mode true|false`` toggles diagram simulation mode."""
         if "simulation_mode" in self.root.attribute_dict:
             return
-        dict.__setitem__(self.root.attribute_dict, "simulation_mode", (False, None, None, True, True))
+        dict.__setitem__(self.root.attribute_dict, "simulation_mode", AttributeEntry.stored(False, writable=True))
 
     def _ensure_simulation_steps_attribute(self) -> None:
         """Studio/console: ``set @main.simulation_steps N`` sets the step count for the Step toolbar action."""
         if "simulation_steps" in self.root.attribute_dict:
             return
-        dict.__setitem__(self.root.attribute_dict, "simulation_steps", (10, None, None, True, True))
+        dict.__setitem__(self.root.attribute_dict, "simulation_steps", AttributeEntry.stored(10, writable=True))
 
     def _ensure_last_selected_dataviewer_attribute(self) -> None:
         """Default data viewer for the measure dialog; ``-1`` means none."""
@@ -68,14 +69,14 @@ class Model:
             return
         if "last_selected_dataviewer_id" in self.root.attribute_dict:
             return
-        dict.__setitem__(self.root.attribute_dict, "last_selected_dataviewer_id", (-1, None, None, True, True))
+        dict.__setitem__(self.root.attribute_dict, "last_selected_dataviewer_id", AttributeEntry.stored(-1, writable=True))
 
     def _ensure_dataviewer_open_widget_attributes(self) -> None:
         """Ensure each DataViewer has ``open_widget`` (for CCP ``set`` / Studio sync)."""
         for dv in self.iter_dataviewers():
             if "open_widget" in dv.attribute_dict:
                 continue
-            dict.__setitem__(dv.attribute_dict, "open_widget", (False, None, None, True, True))
+            dict.__setitem__(dv.attribute_dict, "open_widget", AttributeEntry.stored(False, writable=True))
 
     # ---- measurements / stimuli / recording ---------------------------------
 

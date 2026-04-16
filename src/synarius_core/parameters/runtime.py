@@ -6,6 +6,7 @@ from uuid import UUID
 
 import numpy as np
 
+from synarius_core.model.attribute_dict import AttributeEntry
 from synarius_core.model.data_model import ComplexInstance, Model
 
 from .repository import CalParamImportPrepared, ParametersRepository
@@ -348,7 +349,7 @@ class ParameterRuntime:
             ("source_hash", str(source_hash)),
         ):
             if key not in node.attribute_dict:
-                dict.__setitem__(node.attribute_dict, key, (value, None, None, True, True))
+                dict.__setitem__(node.attribute_dict, key, AttributeEntry.stored(value, writable=True))
             else:
                 node.set(key, value)
         self.repo.register_data_set(
@@ -439,7 +440,7 @@ class ParameterRuntime:
             raise ValueError("data_container must be created as direct child of a data_set")
         node.attribute_dict["type"] = "MODEL.PARAMETER_DATA_CONTAINER"
         if "container_type" not in node.attribute_dict:
-            dict.__setitem__(node.attribute_dict, "container_type", ("GROUP", None, None, True, True))
+            dict.__setitem__(node.attribute_dict, "container_type", AttributeEntry.stored("GROUP", writable=True))
 
     def register_cal_param_node(
         self,
@@ -472,7 +473,7 @@ class ParameterRuntime:
             if existing != data_set_id:
                 raise ValueError("cal_param existing data_set_id conflicts with resolved parent data_set")
         else:
-            dict.__setitem__(node.attribute_dict, "data_set_id", (str(data_set_id), None, None, True, False))
+            dict.__setitem__(node.attribute_dict, "data_set_id", AttributeEntry.stored(str(data_set_id), writable=False))
         self.repo.register_parameter(
             parameter_id=node.id,
             data_set_id=data_set_id,
@@ -505,7 +506,7 @@ class ParameterRuntime:
             if existing != ds_id:
                 raise ValueError("imported cal_param existing data_set_id conflicts with parent data_set")
         else:
-            dict.__setitem__(node.attribute_dict, "data_set_id", (str(ds_id), None, None, True, False))
+            dict.__setitem__(node.attribute_dict, "data_set_id", AttributeEntry.stored(str(ds_id), writable=False))
 
     def _import_cal_param_write_repo_row(
         self,
@@ -592,7 +593,7 @@ class ParameterRuntime:
             dict.__setitem__(
                 node.attribute_dict,
                 "data_set_id",
-                (str(prep.data_set_id), None, None, True, False),
+                AttributeEntry.stored(str(prep.data_set_id), writable=False),
             )
 
     def _bulk_import_validate_tag_all(self, pairs: Sequence[tuple[ComplexInstance, CalParamImportPrepared]]) -> None:

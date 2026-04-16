@@ -908,6 +908,10 @@ class SynariusController:
                 raise CommandError(f"orthogonal_bends must be comma-separated numbers: {exc}") from exc
         sp = str(kwargs.get("source_pin", "out"))
         if ob_list is not None:
+            # Strip trailing y-coordinate: it is always derived from the target pin's y by
+            # routing finish functions, so storing it causes extra steps on imprecise files.
+            if len(ob_list) >= 2 and len(ob_list) % 2 == 0:
+                ob_list = ob_list[:-1]
             xy = instance_source_pin_diagram_xy(src, sp)
             if xy is not None:
                 sx, sy = xy

@@ -6,6 +6,7 @@ from uuid import UUID
 
 from synarius_core.variable_naming import validate_pin_name
 
+from .attribute_dict import AttributeEntry
 from .base import LocatableInstance
 from .complex_instance import ComplexInstance
 from .element_type import ModelElementType
@@ -52,7 +53,7 @@ class ElementaryInstance(LocatableInstance):
         )
         self.type_key = type_key
         merged = _pin_map_from_legacy(pin=pin, in_pins=in_pins, out_pins=out_pins)
-        dict.__setitem__(self.attribute_dict, "pin", (merged, None, None, True, True))
+        dict.__setitem__(self.attribute_dict, "pin", AttributeEntry.stored(merged, writable=True))
         self._install_default_pins_for_element()
 
     def _install_default_pins_for_element(self) -> None:
@@ -180,11 +181,11 @@ def elementary_fmu_block(
         "extra_meta": dict(fmu_extra_meta or {}),
         "variables": _normalize_fmu_variable_rows(fmu_variables),
     }
-    dict.__setitem__(el.attribute_dict, "fmu", (fmu_body, None, None, True, True))
+    dict.__setitem__(el.attribute_dict, "fmu", AttributeEntry.stored(fmu_body, writable=True))
     if isinstance(model_identifier, str) and model_identifier.strip():
         dict.__setitem__(
             el.attribute_dict,
             "diagram",
-            ({"subtitle": model_identifier.strip()[:28]}, None, None, True, True),
+            AttributeEntry.stored({"subtitle": model_identifier.strip()[:28]}, writable=True),
         )
     return el

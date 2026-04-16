@@ -5,6 +5,7 @@ from uuid import UUID
 
 from synarius_core.variable_naming import validate_python_variable_name
 
+from .attribute_dict import AttributeEntry
 from .attribute_path import split_attribute_path
 from .base import LocatableInstance
 from .complex_instance import ComplexInstance
@@ -57,14 +58,14 @@ class Variable(ElementaryInstance):
 
     def _install_dataviewer_attributes(self) -> None:
         """Which data viewer IDs tap this variable's output (measurement); see Studio diagram overlays."""
-        dict.__setitem__(self.attribute_dict, "dataviewer_measure_ids", ([], None, None, True, True))
+        dict.__setitem__(self.attribute_dict, "dataviewer_measure_ids", AttributeEntry.stored([], writable=True))
 
     def _install_stimulation_attributes(self) -> None:
         """Writable protocol attributes for generic time-based stimulation (see ``dataflow_sim.stimulation``)."""
         from synarius_core.dataflow_sim.stimulation import STIMULATION_INSTALL_ENTRIES
 
         for key, default in STIMULATION_INSTALL_ENTRIES:
-            dict.__setitem__(self.attribute_dict, key, (default, None, None, True, True))
+            dict.__setitem__(self.attribute_dict, key, AttributeEntry.stored(default, writable=True))
 
     def _get_diagram_block_width(self) -> float:
         from synarius_core.model.diagram_geometry import variable_diagram_block_width_scene
@@ -124,10 +125,10 @@ class DataViewer(LocatableInstance):
             obj_id=obj_id,
             parent=parent,
         )
-        dict.__setitem__(self.attribute_dict, "dataviewer_id", (vid, None, None, True, True))
+        dict.__setitem__(self.attribute_dict, "dataviewer_id", AttributeEntry.stored(vid, writable=True))
         # UI / CCP: ``set <DataViewerRef>.open_widget true`` requests opening the live DataViewer
         # (Studio clears this to false after handling).
-        dict.__setitem__(self.attribute_dict, "open_widget", (False, None, None, True, True))
+        dict.__setitem__(self.attribute_dict, "open_widget", AttributeEntry.stored(False, writable=True))
 
 
 class BasicOperator(ElementaryInstance):

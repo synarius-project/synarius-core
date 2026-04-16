@@ -92,18 +92,33 @@ class ConnectorRoutingTest(unittest.TestCase):
         self.assertEqual(len(p), 2)
 
     def test_orthogonal_drag_segments_on_actual_polyline(self) -> None:
+        # 2-bend HVH: only the vertical mid-segment (bi=0, axis="x") is draggable.
+        # The final horizontal approach to the target pin is excluded — its y position is
+        # forced to ty by the routing finish function and therefore has no visual effect.
         sx, sy, tx, ty = 0.0, 0.0, 200.0, 80.0
         b = [100.0, 80.0]
         segs = orthogonal_drag_segments(sx, sy, tx, ty, b)
-        self.assertEqual(len(segs), 2)
+        self.assertEqual(len(segs), 1)
         self.assertEqual(segs[0][4], 0)
         self.assertEqual(segs[0][5], "x")
-        self.assertEqual(segs[1][4], 1)
-        self.assertEqual(segs[1][5], "y")
         x1, y1, x2, y2, _, _ = segs[0]
         self.assertAlmostEqual(x1, x2)
         mx = (x1 + x2) * 0.5
         self.assertAlmostEqual(mx, 100.0)
+
+    def test_orthogonal_drag_segments_four_bend_has_three_draggable(self) -> None:
+        # 4-bend HVHVH: bi=0 (vertical), bi=1 (horizontal middle), bi=2 (vertical) are draggable.
+        # bi=3 (final horizontal approach) is excluded.
+        sx, sy, tx, ty = 0.0, 0.0, 300.0, 100.0
+        b = [80.0, 50.0, 200.0, 100.0]
+        segs = orthogonal_drag_segments(sx, sy, tx, ty, b)
+        self.assertEqual(len(segs), 3)
+        self.assertEqual(segs[0][4], 0)
+        self.assertEqual(segs[0][5], "x")
+        self.assertEqual(segs[1][4], 1)
+        self.assertEqual(segs[1][5], "y")
+        self.assertEqual(segs[2][4], 2)
+        self.assertEqual(segs[2][5], "x")
 
     def test_connector_model_polyline_xy(self) -> None:
         from uuid import uuid4
