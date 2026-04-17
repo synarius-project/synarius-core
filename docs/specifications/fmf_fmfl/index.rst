@@ -21,6 +21,7 @@ This section specifies the *Functional Model Format* (FMF) and *Functional Model
    fmfl_v0_1
    normative_summaries_v0_1
    deliverables_examples
+   codegen_stage2_concept
 
 --------------------------------------------------------------------------------
 A. Scope and Positioning

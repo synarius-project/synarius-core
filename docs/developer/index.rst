@@ -1,5 +1,5 @@
-Developer documentation
-=======================
+3  Developer Documentation
+==========================
 
 Hinweise für Mitwirkende und CI. Ein vollständiger Build dieses Abschnitts setzt eine **Monorepo-Arbeitskopie** voraus: Neben ``synarius-core`` liegen ``synarius-guidelines`` und die Datei ``COVERAGE.md`` im gemeinsamen Wurzelverzeichnis (siehe Pfade in den einzelnen Seiten).
 

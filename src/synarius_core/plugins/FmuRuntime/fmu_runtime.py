@@ -9,7 +9,7 @@ from typing import Any
 from uuid import UUID
 
 from synarius_core.dataflow_sim.context import SimulationContext
-from synarius_core.dataflow_sim.compiler import scalar_ws_read, unpack_wire_ref
+from synarius_core.dataflow_sim.compiler import unpack_wire_ref
 from synarius_core.model import Variable
 from synarius_core.plugins.element_types import (
     ElementTypeHandler,
@@ -191,6 +191,30 @@ class FmuRuntimePlugin(SynariusPlugin):
             return float(var.get(key))
         except Exception:
             return default
+
+    @staticmethod
+    def _label_ws_read(
+        ws: dict[Any, float],
+        raw: Any,
+        nb: dict[Any, Any],
+    ) -> float:
+        """Read from a label-keyed workspace via an incoming wire reference."""
+        if raw is None:
+            return 0.0
+        try:
+            src_id, src_pin = unpack_wire_ref(raw)
+        except TypeError:
+            return 0.0
+        src_node = nb.get(src_id)
+        if src_node is None:
+            return 0.0
+        from synarius_core.dataflow_sim import elementary_has_fmu_path
+        from synarius_core.dataflow_sim.equation_walk import label as _lbl
+        from synarius_core.model import ElementaryInstance
+        src_label = _lbl(src_node)
+        if isinstance(src_node, ElementaryInstance) and elementary_has_fmu_path(src_node):
+            return float(ws.get(f"{src_label}.{src_pin}", 0.0))
+        return float(ws.get(src_label, 0.0))
 
     @classmethod
     def _var_stim_value_t0(cls, var: Variable) -> float | None:
@@ -397,7 +421,7 @@ class FmuRuntimePlugin(SynariusPlugin):
                 if stim_v is not None:
                     return float(stim_v)
             return float(self._fmu_parameter_scalar_from_variable(src_node))
-        return float(scalar_ws_read(ws, raw, node_by_id=nb))
+        return float(self._label_ws_read(ws, raw, nb))
 
     def _apply_parameter_reals_on_init(
         self,
@@ -590,7 +614,7 @@ class FmuRuntimePlugin(SynariusPlugin):
             raw = inc.get(pin_name)
             if raw is None:
                 continue
-            v = scalar_ws_read(ws, raw, node_by_id=nb)
+            v = self._label_ws_read(ws, raw, nb)
             vrs.append(vr)
             vals.append(v)
         if vrs:
@@ -598,8 +622,8 @@ class FmuRuntimePlugin(SynariusPlugin):
 
     def _fmu_write_outputs(self, b: _Bundle, ws: dict[Any, float], node_id: UUID, ys: Any) -> None:
         for (_pname, _vr), y in zip(b.output_map, ys, strict=True):
-            ws[(node_id, _pname)] = float(y)
-        ws[node_id] = float(ys[0])
+            ws[f"{b.node_label}.{_pname}"] = float(y)
+        ws[b.node_label] = float(ys[0])
 
     def step_fmu(self, ctx: SimContext | SimulationContext, node_id: UUID) -> None:
         b = self._bundles.get(node_id)

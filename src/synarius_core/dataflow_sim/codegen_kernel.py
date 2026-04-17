@@ -19,6 +19,9 @@ from .compiler import CompiledDataflow, elementary_has_fmu_path, unpack_wire_ref
 from .equation_walk import (
     EqFmu,
     EqGeneric,
+    EqKennfeld,
+    EqKennlinie,
+    EqKennwert,
     EqOperator,
     EqOperatorIncomplete,
     EqStdArithmetic,
@@ -106,6 +109,27 @@ def _collect_equation_lines(compiled: CompiledDataflow) -> tuple[list[tuple[str,
             if ev.in1_from_previous:
                 b = f"prev({b})"
             lines.append(_EquationLine(f"  {ev.target_label} = {a} {ev.op_symbol} {b}"))
+        elif isinstance(ev, EqKennwert):
+            ref = ev.parameter_ref or "?"
+            lines.append(_EquationLine(f"  {ev.target_label} = param_scalar({ref})"))
+        elif isinstance(ev, EqKennlinie):
+            ref = ev.parameter_ref or "?"
+            x_id, x_pin = unpack_wire_ref(ev.in_x)
+            rx = _src_expr(nb, x_id, x_pin)
+            if ev.in_x_from_previous:
+                rx = f"prev({rx})"
+            lines.append(_EquationLine(f"  {ev.target_label} = curve_lookup({ref}, {rx})"))
+        elif isinstance(ev, EqKennfeld):
+            ref = ev.parameter_ref or "?"
+            x_id, x_pin = unpack_wire_ref(ev.in_x)
+            y_id, y_pin = unpack_wire_ref(ev.in_y)
+            rx = _src_expr(nb, x_id, x_pin)
+            ry = _src_expr(nb, y_id, y_pin)
+            if ev.in_x_from_previous:
+                rx = f"prev({rx})"
+            if ev.in_y_from_previous:
+                ry = f"prev({ry})"
+            lines.append(_EquationLine(f"  {ev.target_label} = map_lookup({ref}, {rx}, {ry})"))
         elif isinstance(ev, EqFmu):
             lines.append(_EquationLine(f"  # {ev.target_label}: FMU step (runtime:fmu plugin)"))
         elif isinstance(ev, EqGeneric):

@@ -34,6 +34,7 @@ from synarius_core.model import (
 from synarius_core.model.attribute_path import split_attribute_path
 from synarius_core.model.connector_routing import bends_absolute_to_relative
 from synarius_core.model.diagram_geometry import instance_source_pin_diagram_xy
+from synarius_core.model.diagram_coordinate_normalize import normalize_root_diagram_positions
 from synarius_core.dataflow_sim.stimulation import STIMULATION_DISPLAY_KEYS, ensure_variable_stimulation_schema
 from synarius_core.fmu.bind import FmuBindError, bind_elementary_from_fmu_path, bind_fmu_inspection_to_elementary
 from synarius_core.fmu.inspection import FmuInspectError, inspect_fmu_path
@@ -2284,6 +2285,9 @@ class SynariusController:
     ) -> str:
         _ = id_policy
         self.model = temp_model
+        # After a successful ``load``, ensure diagram coordinates are non-negative with padding
+        # so Studio opens with the diagram flush to the top-left (see ``diagram_coordinate_normalize``).
+        normalize_root_diagram_positions(self.model)
         self._rebind_model_root_aliases()
         if cwd_id is not None:
             new_cwd = self.model.find_by_id(cwd_id)

@@ -9,7 +9,7 @@ synarius-core Documentation
    :align: center
 
 .. toctree::
-   :maxdepth: 2
+   :maxdepth: 3
 
    requirements/index
    specifications/index

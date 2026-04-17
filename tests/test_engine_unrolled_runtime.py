@@ -97,7 +97,7 @@ class EngineUnrolledRuntimeTest(unittest.TestCase):
         eng.step()
         ws = eng.context.scalar_workspace
         self.assertIsNotNone(ws)
-        self.assertAlmostEqual(float(ws[op.id]), 3.0, places=5)
+        self.assertAlmostEqual(float(ws["op"]), 3.0, places=5)
 
 
 if __name__ == "__main__":

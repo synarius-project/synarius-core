@@ -22,6 +22,7 @@ try:
 except ImportError:
     raise
 from .context import SimulationContext
+from .equation_walk import label as _node_label
 from .python_step_emit import generate_unrolled_python_step_document
 from .step_exchange import RunStepExchange
 from .stimulation import stimulation_value
@@ -76,8 +77,8 @@ class SimpleRunEngine:
         self._ctx = SimulationContext(model=model)
         self._compile_pass = DataflowCompilePass()
         self._compiled: CompiledDataflow | None = None
-        self._workspace: dict[UUID, float] = {}
-        self._initial_snapshot: dict[UUID, float] = {}
+        self._workspace: dict[str, float] = {}
+        self._initial_snapshot: dict[str, float] = {}
         # True after ``init_fmu`` ran successfully; ``shutdown_fmu`` only then (avoids spurious
         # shutdown when the registry loads the plugin for the first time).
         self._runtime_fmu_session: bool = False
@@ -134,20 +135,18 @@ class SimpleRunEngine:
         self._run_equations = None
         if self._compiled is None:
             return
-        wk_map = self._compiled.workspace_key_uid or {}
         for uid, node in self._compiled.node_by_id.items():
-            sk = wk_map.get(uid, uid)
+            lbl = _node_label(node)
             if isinstance(node, Variable):
                 try:
                     v = float(node.value)
                 except (TypeError, ValueError):
                     v = 0.0
-                self._workspace[sk] = v
-                self._initial_snapshot[sk] = v
+                self._workspace[lbl] = v
+                self._initial_snapshot[lbl] = v
             elif isinstance(node, ElementaryInstance):
-                # Operators and non-FMU elementaries: scalar slot (FMU outputs are filled by step_fmu).
-                self._workspace.setdefault(sk, 0.0)
-                self._initial_snapshot.setdefault(sk, 0.0)
+                self._workspace.setdefault(lbl, 0.0)
+                self._initial_snapshot.setdefault(lbl, 0.0)
 
         src = generate_unrolled_python_step_document(
             self._compiled,
@@ -312,18 +311,17 @@ class SimpleRunEngine:
 
         self._ctx.time_s += self._dt_s
         t = self._ctx.time_s
-        stimmed: set[UUID] = set()
+        stimmed: set[str] = set()
         self._sync_ctx_options()
         self._ctx.scalar_workspace = self._workspace
 
-        wk_map = self._compiled.workspace_key_uid or {}
         for uid, node in self._compiled.node_by_id.items():
             if isinstance(node, Variable):
                 sv = stimulation_value(node, t)
                 if sv is not None:
-                    sk = wk_map.get(uid, uid)
-                    self._workspace[sk] = float(sv)
-                    stimmed.add(uid)
+                    lbl = _node_label(node)
+                    self._workspace[lbl] = float(sv)
+                    stimmed.add(lbl)
 
         exchange = RunStepExchange(
             workspace=self._workspace,
@@ -396,9 +394,8 @@ class SimpleRunEngine:
     def _apply_workspace_to_variables(self) -> None:
         if self._compiled is None:
             return
-        wk_map = self._compiled.workspace_key_uid or {}
-        for uid, node in self._compiled.node_by_id.items():
+        for node in self._compiled.node_by_id.values():
             if isinstance(node, Variable):
-                sk = wk_map.get(uid, uid)
-                if sk in self._workspace:
-                    node.value = self._workspace[sk]
+                lbl = _node_label(node)
+                if lbl in self._workspace:
+                    node.value = self._workspace[lbl]
