@@ -5,9 +5,13 @@ the top-level subpackages that make up the core architecture.
 """
 
 from .simulation import SimulationFramework, SimulationState
+# ``cli`` must come after ``controller``: :mod:`synarius_core.cli.synarius_cli` imports
+# :class:`~synarius_core.controller.synarius_controller.SynariusController`. Loading ``cli``
+# first leaves ``synarius_core.controller`` only partially initialized and breaks
+# ``from synarius_core.controller import SynariusController`` (e.g. PyInstaller / Studio).
 from . import (
-    cli,
     controller,
+    cli,
     fmu,
     io,
     library,
