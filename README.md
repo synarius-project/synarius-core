@@ -1,121 +1,117 @@
-# synarius-core (SN Core)
+# synarius-core
 
 ![Synarius title image](docs/_static/synarius-title.png)
 
-GUI-less simulation backend for Synarius.
+**synarius-core is the GUI-free Python engine behind Synarius**: projects, simulation services, parameters, measurements, and file-oriented workflows that **Synarius Studio** and **Synarius Apps** build on.
 
 **Python 3.11–3.14** is supported (see `requires-python` in `pyproject.toml`).
 
 **Contributing:** follow the **[Synarius programming guidelines](https://synarius-project.github.io/synarius-guidelines/programming_guidelines.html)** (HTML) and this repository’s **[CONTRIBUTING.md](CONTRIBUTING.md)**.
 
-## Vision
+## What is this?
 
-- Synarius Studio (SN Studio) is the graphical simulation modeling and visualization environment.
-- SN Core is a GUI-less simulation backend that provides the simulation functionality.
-- Over time, system modeling should become more general (system modeling as a reusable process- and ontology-oriented approach).
-  - In SN Studio, this will enable "regional dialects" for graphical simulation that can be adapted to different use cases (e.g. MBSE, audio processing, microcontroller programming, dynamic system simulation, load flow, optimization, ...).
+If Synarius Studio is the **dashboard**, synarius-core is the **motor**. It is meant to be **imported, scripted, tested, and deployed** without pulling in Qt or other desktop UI stacks (unless you add them yourself in your own app).
 
-## Goals (scope)
+## When should I use it?
 
-SN Core should provide a clean, stable backend that SN Studio (and later other frontends) can use.
+- You want **automation** (CI, batch runs, headless services) around the same models Studio edits.  
+- You are building **your own UI** or integration and need a **stable Python API** for simulation-related data and behavior.  
+- You need **measurement / time-series I/O** (optional extras) for tools like the DataViewer—implemented here so all frontends share one implementation.
 
-- GUI-less simulation (data- and step-oriented).
-- Project load/save and persistence (simulation configuration, FMU wiring, parameters, measurements).
-- Stimulation and measurement within the simulation environment.
-- Saving measurement results.
-- Simple mathematical operations as building blocks.
-- Plugin-ability as a foundation for further modularization.
+## Quick example
 
-## Roadmap
+**Install (development, from `synarius-core/`):**
 
-### 1.0
+```bash
+python -m pip install -U pip
+python -m pip install -e .
+```
 
-- Simulation of multiple FMUs that can be connected via connectors.
-- Loading and saving such projects.
-- Stimulation and measurement in the simulation environment.
-- Saving measurement results.
-- Implementation of simple mathematical operations.
-- Data provision for graphical oscilloscopes (real-time observation) from the backend (consumed by SN Studio UI).
-- Stimulation possible via signal generators and measurement files.
-
-### 1.X
-
-- Modularization via a plugin interface (core plugins and, in the future, extended backend functionality).
-- Extension of the initial MH syntax towards a flexible modeling format.
-- Arduino support as a plugin.
-- Support for lookup tables and characteristic curves.
-- DCM and HDF5 files (optional extensions: par [CANape], ASAM CDF/CDFX, CSV).
-
-## Architecture (high-level)
-
-- GUI is intentionally not implemented in SN Core.
-- SN Core provides data, models and simulation services; SN Studio orchestrates visualization and user input.
-
-## License
-
-- The core system is open source.
-- Extended commercial licensing models for add-on modules or enterprise requirements remain optional for the future.
-
-## Develop / Run (minimal)
+**Smoke-check:**
 
 ```bash
 python -m synarius_core
 ```
 
-## Measurement time-series I/O (optional)
-
-Loading measurement files (CSV, Parquet, MDF) for tools such as **Synarius Apps / Dataviewer** is implemented in ``synarius_core.io`` (:class:`~synarius_core.io.timeseries.TimeSeriesBundle`, :func:`~synarius_core.io.timeseries.load_timeseries_file`). Dependencies are **not** installed by default; use the extra:
+**Optional measurement file support** (CSV, Parquet, MDF, etc.—see `synarius_core.io` in the docs):
 
 ```bash
-pip install -e ".[timeseries]"
+python -m pip install -e ".[timeseries]"
 ```
+
+**Load a measurement file in Python** (requires the `[timeseries]` extra; see live docs for exact types):
+
+```python
+from synarius_core.io.timeseries import load_timeseries_file
+
+bundle = load_timeseries_file("path/to/measurements.parquet")
+```
+
+## Relationship to Studio
+
+- **Studio** owns menus, diagrams, and Qt-specific UX.  
+- **synarius-core** owns the **data model and backend-facing operations** Studio calls into.  
+- **Rule of thumb:** if it is **simulation logic** or **shared persistence rules**, it belongs here; if it is **pixels and widgets**, it belongs in Studio or Apps.
+
+## Contributing
+
+We care about **clear APIs, tests, and documentation** because every frontend depends on this package.
+
+- **Issues:** https://github.com/synarius-project/synarius-core/issues  
+- **Guidelines:** https://synarius-project.github.io/synarius-guidelines/programming_guidelines.html  
+- **This repo:** [CONTRIBUTING.md](CONTRIBUTING.md)
 
 ## Documentation
 
-- Live docs: https://synarius-project.github.io/synarius-core/
-- Docs source: https://github.com/synarius-project/synarius-core/tree/main/docs
+- **Live docs:** https://synarius-project.github.io/synarius-core/  
+- **Sources:** https://github.com/synarius-project/synarius-core/tree/main/docs  
 
-In a **full Synarius monorepo checkout**, the Sphinx docs also pull in the repo-root ``COVERAGE.md`` and ``synarius-guidelines/docs/programming_guidelines.rst`` under **Developer documentation** (see ``docs/developer/``). Build locally:
+In a **full Synarius monorepo checkout**, Sphinx may also pull in repo-root `COVERAGE.md` and `synarius-guidelines/docs/programming_guidelines.rst` under **Developer documentation** (see `docs/developer/`).
+
+**Build locally** (from `synarius-core/`):
 
 ```bash
-cd synarius-core
-pip install -e ".[docs]"
+python -m pip install -e ".[docs]"
 sphinx-build -b html docs docs/_build/html
 ```
 
-Open ``docs/_build/html/index.html`` in a browser.
+Open `docs/_build/html/index.html` in a browser.
 
-Draft specifications in-repo include **AttributeDict / ``AttributeEntry`` refactor (frozen dataclass + optional typing)** — see ``docs/specifications/attribute_entry_typing_refactor_concept.rst`` and ``docs/developer/attribute_dict_contributor_notes.rst``. For a separate local output tree (e.g. to avoid overwriting an existing ``html`` build), use ``sphinx-build -b html docs docs/_build/html_local``.
+Draft specifications in-repo include **AttributeDict / `AttributeEntry` refactor** — see `docs/specifications/attribute_entry_typing_refactor_concept.rst` and `docs/developer/attribute_dict_contributor_notes.rst`.
 
-## Branching Strategy
+## License
+
+- The core system is open source.  
+- Extended commercial licensing models for add-on modules or enterprise requirements remain optional for the future.
+
+## Branching strategy
 
 This repository uses a simple branching model that fits a solo-developer phase and can be tightened later without changing the overall flow.
 
 ### Branch roles
 
-- `main`: stable, release-ready branch
-- `dev`: ongoing integration branch for daily development
-- `feature/*`: short-lived branches for features
+- `main`: stable, release-ready branch  
+- `dev`: ongoing integration branch for daily development  
+- `feature/*`: short-lived branches for features  
 - optional short-lived branch prefixes: `fix/*`, `docs/*`, `refactor/*`
 
 ### Practical rules
 
-1. Create new work branches from `dev`.
-2. Merge `feature/*` (and optional `fix/*`, `docs/*`, `refactor/*`) into `dev`.
-3. Merge `dev` into `main` when `dev` is stable and CI is green.
-4. Create release tags (`v*`) from `main` only.
-5. Direct pushes:
-   - allowed on `dev` (for now)
-   - avoided on `main` (use PR from `dev` to `main`)
+1. Create new work branches from `dev`.  
+2. Merge `feature/*` (and optional `fix/*`, `docs/*`, `refactor/*`) into `dev`.  
+3. Merge `dev` into `main` when `dev` is stable and CI is green.  
+4. Create release tags (`v*`) from `main` only.  
+5. Direct pushes: allowed on `dev` (for now); avoided on `main` (use PR from `dev` to `main`).
 
 ### GitHub branch protection (recommended)
 
-- `main`:
-  - require pull request before merge
-  - require status checks to pass
-  - approvals not required (for now)
-  - no force pushes, no branch deletion
-- `dev`:
-  - keep permissive for now (direct pushes allowed)
-  - optionally block force pushes and deletion
+- **`main`:** require pull request before merge; require status checks to pass; approvals not required (for now); no force pushes, no branch deletion.  
+- **`dev`:** keep permissive for now (direct pushes allowed); optionally block force pushes and deletion.
 
+## Goals, roadmap, and architecture notes (optional)
+
+SN Core should provide a clean, stable backend that Synarius Studio (and later other frontends) can use: **GUI-less simulation** (data- and step-oriented), **project load/save**, **stimulation and measurement**, **saving results**, **simple math blocks**, and **room to grow via plugins**.
+
+**Roadmap (summary):** multi-FMU simulation with connectors; load/save projects; stimulation/measurement; saving measurement results; simple mathematical operations; data for graphical oscilloscopes; signal generators and measurement files. Later: plugin interfaces, richer modeling formats, Arduino as a plugin, lookup tables, more file formats (DCM, HDF5, optional ASAM/CANape-style paths).
+
+**Architecture:** the GUI is intentionally not implemented in synarius-core. Core provides data, models, and simulation services; Studio orchestrates visualization and user input.
