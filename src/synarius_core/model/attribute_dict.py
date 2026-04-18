@@ -42,6 +42,10 @@ class AttributeEntry:
     exposed: bool = True
     writable: bool = False
     value_spec: Callable[[Any], Any] | None = None
+    bounds: tuple[float, float] | None = None
+    unit: str = ""
+    enum_values: list[str] | None = None
+    docstring: str = ""
 
     def __post_init__(self) -> None:
         if self.setter is not None and self.value_spec is not None:
@@ -58,9 +62,22 @@ class AttributeEntry:
         exposed: bool = True,
         writable: bool = False,
         value_spec: Callable[[Any], Any] | None = None,
+        bounds: tuple[float, float] | None = None,
+        unit: str = "",
+        enum_values: list[str] | None = None,
+        docstring: str = "",
     ) -> AttributeEntry:
         """Create a stored (non-virtual) attribute entry."""
-        return cls(value=value, exposed=exposed, writable=writable, value_spec=value_spec)
+        return cls(
+            value=value,
+            exposed=exposed,
+            writable=writable,
+            value_spec=value_spec,
+            bounds=bounds,
+            unit=unit,
+            enum_values=enum_values,
+            docstring=docstring,
+        )
 
     @classmethod
     def virtual(
