@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QBrush, QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -21,12 +22,18 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from synarius_attr_config.meta import GuiHint
 from synarius_attr_config.projection import AttribViewModel
 from synarius_attr_config.widgets._inference import infer_widget_type
 
-# Synarius light-blue table palette (mirrors RESOURCES_PANEL_BACKGROUND in synarius_studio.theme).
+# ---------------------------------------------------------------------------
+# Synarius light-blue table palette
+# Mirrors RESOURCES_PANEL_BACKGROUND in synarius_studio.theme.
+# ---------------------------------------------------------------------------
 _ROW_BG = "#c8e3fb"
-_ROW_ALT_BG = "#b4cce2"   # _ROW_BG scaled ×0.90
+_ROW_ALT_BG = "#b4cce2"        # _ROW_BG × 0.90
+_NAME_COL_BG = "#8ab0c8"       # parameter column — clearly darker than _ROW_BG
+_NAME_COL_ALT_BG = "#7aa3bc"   # parameter column alternating row
 _GRID_COLOR = "#9ab8cf"
 _TEXT_COLOR = "#1a1a1a"
 _HEADER_BG = "#353535"
@@ -34,6 +41,7 @@ _HEADER_FG = "#ffffff"
 _HEADER_SEP = "#505050"
 _SEL_BG = "#586cd4"
 _SEL_FG = "#ffffff"
+
 _TOOLTIP_QSS = (
     "QToolTip { color: #ffffff !important; background-color: #2b2b2b !important;"
     " border: 1px solid #5a5a5a !important; padding: 4px 6px !important; }"
@@ -47,6 +55,41 @@ _TABLE_QSS = (
     f" {_TOOLTIP_QSS}"
 )
 
+# QSS applied to every cell-value widget so it blends into the blue table background.
+_CELL_QSS = (
+    f"QWidget {{ background-color: transparent; }}"
+    f"QDoubleSpinBox, QSpinBox, QLineEdit, QDateEdit {{"
+    f" background-color: {_ROW_BG}; color: {_TEXT_COLOR};"
+    f" border: 1px solid {_GRID_COLOR}; border-radius: 2px;"
+    f" selection-background-color: {_SEL_BG}; selection-color: {_SEL_FG}; }}"
+    f"QComboBox {{"
+    f" background-color: {_ROW_BG}; color: {_TEXT_COLOR};"
+    f" border: 1px solid {_GRID_COLOR}; border-radius: 2px; }}"
+    f"QComboBox QAbstractItemView {{"
+    f" background-color: {_ROW_BG}; color: {_TEXT_COLOR};"
+    f" selection-background-color: {_SEL_BG}; selection-color: {_SEL_FG}; }}"
+    f"QCheckBox {{ color: {_TEXT_COLOR}; }}"
+    f"QRadioButton {{ color: {_TEXT_COLOR}; }}"
+    f"QSlider::groove:horizontal {{"
+    f" background: {_GRID_COLOR}; height: 4px; border-radius: 2px; }}"
+    f"QSlider::handle:horizontal {{"
+    f" background: {_SEL_BG}; width: 12px; height: 12px;"
+    f" border-radius: 6px; margin: -4px 0; }}"
+    f"QPushButton {{"
+    f" background-color: {_ROW_ALT_BG}; color: {_TEXT_COLOR};"
+    f" border: 1px solid {_GRID_COLOR}; border-radius: 2px; padding: 2px 6px; }}"
+    f"QPushButton:hover {{ background-color: {_GRID_COLOR}; }}"
+    f" {_TOOLTIP_QSS}"
+)
+
+
+def _text_for_bg(hex_bg: str) -> str:
+    """Return '#000000' or '#ffffff' depending on which gives better contrast on *hex_bg*."""
+    s = hex_bg.strip().removeprefix("#")
+    r, g, b = int(s[0:2], 16), int(s[2:4], 16), int(s[4:6], 16)
+    luminance = (r * 299 + g * 587 + b * 114) // 1000
+    return "#000000" if luminance > 128 else "#ffffff"
+
 
 class AttribTableWidget(QTableWidget):
     """Attribute table view backed by an :class:`AttribViewModel`.
@@ -59,6 +102,15 @@ class AttribTableWidget(QTableWidget):
 
     A right-click context menu on any row with a default value offers
     *Reset to default*.
+
+    Parameters
+    ----------
+    view_model
+        The projected attribute set to display.
+    alternating_rows
+        When ``True`` (default) every second row uses a slightly darker background
+        and the parameter column uses its own two-tone shading.  Pass ``False`` to
+        disable alternating colours.
     """
 
     _COL_NAME = 0
@@ -68,10 +120,12 @@ class AttribTableWidget(QTableWidget):
     def __init__(
         self,
         view_model: AttribViewModel,
+        alternating_rows: bool = True,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._vm = view_model
+        self._alternating_rows = alternating_rows
         self._row_keys: list[str] = []
         self._value_widgets: dict[str, QWidget] = {}
 
@@ -86,7 +140,7 @@ class AttribTableWidget(QTableWidget):
             self._COL_UNIT,
             self.horizontalHeader().ResizeMode.ResizeToContents,
         )
-        self.setAlternatingRowColors(True)
+        self.setAlternatingRowColors(alternating_rows)
         self.setStyleSheet(_TABLE_QSS)
         self.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
@@ -109,12 +163,13 @@ class AttribTableWidget(QTableWidget):
         for row, key in enumerate(visible_keys):
             entry = self._vm._entries[key][0]
             gh = self._vm._entries[key][2]
-            hint = gh if gh is not None else __import__(
-                "synarius_attr_config.meta", fromlist=["GuiHint"]
-            ).GuiHint()
+            hint = gh if gh is not None else GuiHint()
 
             name_item = QTableWidgetItem(self._vm.display_name(key))
             name_item.setFlags(Qt.ItemFlag.ItemIsEnabled)
+            name_bg = (_NAME_COL_ALT_BG if self._alternating_rows and row % 2 == 1
+                       else _NAME_COL_BG)
+            name_item.setBackground(QBrush(QColor(name_bg)))
             self.setItem(row, self._COL_NAME, name_item)
 
             widget_type = infer_widget_type(entry, hint)
@@ -135,6 +190,19 @@ class AttribTableWidget(QTableWidget):
         gh = self._vm._entries[key][2]
         value = self._vm.pending_value(key)
 
+        w = self._build_value_widget(key, entry, gh, widget_type, writable, value)
+        w.setStyleSheet(_CELL_QSS)
+        return w
+
+    def _build_value_widget(
+        self,
+        key: str,
+        entry: Any,
+        gh: GuiHint | None,
+        widget_type: str,
+        writable: bool,
+        value: Any,
+    ) -> QWidget:
         if widget_type == "checkbox":
             w = QCheckBox()
             w.setChecked(bool(value))
@@ -230,9 +298,7 @@ class AttribTableWidget(QTableWidget):
             btn.setMaximumWidth(30)
             btn.clicked.connect(
                 lambda checked, k=key, le=line: (
-                    (
-                        path := QFileDialog.getOpenFileName(self, "Select file")[0]
-                    ),
+                    (path := QFileDialog.getOpenFileName(self, "Select file")[0]),
                     (le.setText(path) if path else None),
                 )
             )
@@ -240,10 +306,9 @@ class AttribTableWidget(QTableWidget):
             hlayout.addWidget(btn)
             return container
 
-        # datepicker
         if widget_type == "datepicker":
-            from PySide6.QtWidgets import QDateEdit
             from PySide6.QtCore import QDate
+            from PySide6.QtWidgets import QDateEdit
             w = QDateEdit()
             w.setEnabled(writable)
             if hasattr(value, "year"):
@@ -254,6 +319,39 @@ class AttribTableWidget(QTableWidget):
                 )
             )
             return w
+
+        if widget_type == "color_picker":
+            from PySide6.QtGui import QColor as _QColor
+            from PySide6.QtWidgets import QColorDialog
+            container = QWidget()
+            hlayout = QHBoxLayout(container)
+            hlayout.setContentsMargins(0, 0, 0, 0)
+            btn = QPushButton()
+            btn.setEnabled(writable)
+            btn.setMinimumWidth(90)
+
+            def _refresh_btn(hex_color: str, b: QPushButton = btn) -> None:
+                fg = _text_for_bg(hex_color)
+                b.setText(hex_color)
+                b.setStyleSheet(
+                    f"background-color: {hex_color}; color: {fg};"
+                    f" border: 1px solid {_GRID_COLOR}; border-radius: 2px;"
+                    f" padding: 2px 6px;"
+                )
+
+            _refresh_btn(str(value))
+
+            def _pick(checked: bool = False, k: str = key, b: QPushButton = btn) -> None:
+                current = _QColor(str(self._vm.pending_value(k)))
+                picked = QColorDialog.getColor(current, self)
+                if picked.isValid():
+                    hex_color = picked.name()
+                    self._vm.set_pending(k, hex_color)
+                    _refresh_btn(hex_color, b)
+
+            btn.clicked.connect(_pick)
+            hlayout.addWidget(btn)
+            return container
 
         # lineedit fallback
         w = QLineEdit(str(value))
@@ -288,9 +386,7 @@ class AttribTableWidget(QTableWidget):
         row = self._row_keys.index(key)
         entry = self._vm._entries[key][0]
         gh = self._vm._entries[key][2]
-        hint = gh if gh is not None else __import__(
-            "synarius_attr_config.meta", fromlist=["GuiHint"]
-        ).GuiHint()
+        hint = gh if gh is not None else GuiHint()
         widget_type = infer_widget_type(entry, hint)
         new_widget = self._make_value_widget(key, widget_type, self._vm.effective_writable(key))
         self._value_widgets[key] = new_widget
