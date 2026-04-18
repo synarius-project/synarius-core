@@ -4,10 +4,10 @@ Attribute Configuration and Options Management — demonstration script.
 Demonstrates both forms of configuration described in the concept
 (docs/specifications/attribute_config/concept.rst):
 
-  1. Local per-object configuration via AttribTableWidget in a QDialog,
-     producing a CCP bulk-set command on OK.
-  2. Global application configuration via OptionsMenuWidget, persisting the
-     result to a temporary settings.toml.
+  1. Local per-object configuration: both AttribTableWidget and AttribFormWidget
+     shown in tabs, producing a CCP bulk-set command on OK.
+  2. Global application configuration: OptionsMenuWidget plus both flat views
+     in tabs, persisting the result to a temporary settings.toml.
   3. A TOML persistence round-trip: write → reload → verify.
 
 Usage::
@@ -15,6 +15,7 @@ Usage::
     python attr_config_demo.py
 
 Requirements: PySide6 >= 6.0.0, tomli-w
+Optional: synarius-studio (for the standard dark palette)
 """
 from __future__ import annotations
 
@@ -27,12 +28,14 @@ from synarius_core.model.attribute_dict import AttributeEntry
 from synarius_attr_config.meta import GuiHint, OptionMeta
 from synarius_attr_config.persistence import TomlPersistenceLayer
 from synarius_attr_config.projection import AttribViewModel
-from synarius_attr_config.widgets import AttribTableWidget, OptionsMenuWidget
+from synarius_attr_config.widgets import AttribFormWidget, AttribTableWidget, OptionsMenuWidget
 
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
     QDialogButtonBox,
+    QStyleFactory,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -86,16 +89,19 @@ ENTRIES: list[tuple[str, AttributeEntry, OptionMeta, GuiHint]] = [
 # ---------------------------------------------------------------------------
 
 def run_local_config_demo(parent: QWidget | None = None) -> None:
-    """Show a local config dialog for the demo object and print the CCP command."""
+    """Show a local config dialog with table and form views; print the CCP command on OK."""
     local_entries = [(k, e, om, gh) for k, e, om, gh in ENTRIES if om.local]
     vm = AttribViewModel(local_entries)
 
     dialog = QDialog(parent)
     dialog.setWindowTitle("Local Configuration — demo_block_1")
+    dialog.resize(550, 300)
     layout = QVBoxLayout(dialog)
 
-    table = AttribTableWidget(vm)
-    layout.addWidget(table)
+    tabs = QTabWidget()
+    tabs.addTab(AttribTableWidget(vm), "Tabelle")
+    tabs.addTab(AttribFormWidget(vm), "Formular")
+    layout.addWidget(tabs)
 
     buttons = QDialogButtonBox(
         QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
@@ -123,16 +129,22 @@ def run_global_options_demo(
     persistence: TomlPersistenceLayer,
     parent: QWidget | None = None,
 ) -> None:
-    """Show the global OptionsMenuWidget and persist changes to settings.toml."""
+    """Show global options in three tabs: Optionsmenü, Tabelle, Formular."""
     global_entries = [(k, e, om, gh) for k, e, om, gh in ENTRIES if om.global_]
+    # Shared vm for the flat views (Tabelle + Formular); OptionsMenuWidget manages its own vms.
+    vm_flat = AttribViewModel(global_entries, persistence=persistence)
 
     dialog = QDialog(parent)
     dialog.setWindowTitle("Global Options")
-    dialog.resize(700, 400)
+    dialog.resize(750, 480)
     layout = QVBoxLayout(dialog)
 
+    tabs = QTabWidget()
     options_widget = OptionsMenuWidget(global_entries, persistence)
-    layout.addWidget(options_widget)
+    tabs.addTab(options_widget, "Optionsmenü")
+    tabs.addTab(AttribTableWidget(vm_flat), "Tabelle")
+    tabs.addTab(AttribFormWidget(vm_flat), "Formular")
+    layout.addWidget(tabs)
 
     buttons = QDialogButtonBox(
         QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
@@ -142,14 +154,15 @@ def run_global_options_demo(
     layout.addWidget(buttons)
 
     if dialog.exec() == QDialog.DialogCode.Accepted:
-        any_changes = False
+        # Collect changes from the active view; prefer flat vm, supplement from OptionsMenuWidget.
+        changes: dict = dict(vm_flat.changed_values())
         for vm in options_widget.all_view_models():
-            changes = vm.changed_values()
-            if changes:
-                persistence.write(changes)
-                print(f"\n[Global options] Persisted: {changes}")
-                any_changes = True
-        if not any_changes:
+            for k, v in vm.changed_values().items():
+                changes.setdefault(k, v)
+        if changes:
+            persistence.write(changes)
+            print(f"\n[Global options] Persisted: {changes}")
+        else:
             print("\n[Global options] No changes.")
     else:
         print("\n[Global options] Cancelled.")
@@ -194,6 +207,16 @@ def run_persistence_roundtrip(tmp_dir: Path) -> None:
 # Entry point
 # ---------------------------------------------------------------------------
 
+def _apply_synarius_theme(app: QApplication) -> None:
+    """Apply the standard Synarius dark palette (Fusion + synarius_studio theme)."""
+    app.setStyle(QStyleFactory.create("Fusion"))
+    try:
+        from synarius_studio.theme import apply_dark_palette
+        apply_dark_palette(app)
+    except ImportError:
+        pass
+
+
 def main() -> None:
     logging.basicConfig(level=logging.DEBUG, format="%(levelname)s %(name)s: %(message)s")
 
@@ -205,6 +228,7 @@ def main() -> None:
 
         # GUI demos
         app = QApplication.instance() or QApplication(sys.argv)
+        _apply_synarius_theme(app)
 
         import tomli_w
         defaults = {

@@ -59,6 +59,10 @@ class AttribTableWidget(QTableWidget):
             self._COL_VALUE,
             self.horizontalHeader().ResizeMode.Stretch,
         )
+        self.horizontalHeader().setSectionResizeMode(
+            self._COL_UNIT,
+            self.horizontalHeader().ResizeMode.ResizeToContents,
+        )
         self.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.verticalHeader().setVisible(False)
