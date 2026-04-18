@@ -24,6 +24,29 @@ from PySide6.QtWidgets import (
 from synarius_attr_config.projection import AttribViewModel
 from synarius_attr_config.widgets._inference import infer_widget_type
 
+# Synarius light-blue table palette (mirrors RESOURCES_PANEL_BACKGROUND in synarius_studio.theme).
+_ROW_BG = "#c8e3fb"
+_ROW_ALT_BG = "#b4cce2"   # _ROW_BG scaled ×0.90
+_GRID_COLOR = "#9ab8cf"
+_TEXT_COLOR = "#1a1a1a"
+_HEADER_BG = "#353535"
+_HEADER_FG = "#ffffff"
+_HEADER_SEP = "#505050"
+_SEL_BG = "#586cd4"
+_SEL_FG = "#ffffff"
+_TOOLTIP_QSS = (
+    "QToolTip { color: #ffffff !important; background-color: #2b2b2b !important;"
+    " border: 1px solid #5a5a5a !important; padding: 4px 6px !important; }"
+)
+_TABLE_QSS = (
+    f"QTableWidget {{ background-color: {_ROW_BG}; alternate-background-color: {_ROW_ALT_BG};"
+    f" color: {_TEXT_COLOR}; gridline-color: {_GRID_COLOR}; border: 1px solid {_GRID_COLOR}; }}"
+    f"QTableWidget::item:selected {{ background-color: {_SEL_BG}; color: {_SEL_FG}; }}"
+    f"QHeaderView::section {{ background-color: {_HEADER_BG}; color: {_HEADER_FG};"
+    f" padding: 4px 6px; border: none; border-right: 1px solid {_HEADER_SEP}; }}"
+    f" {_TOOLTIP_QSS}"
+)
+
 
 class AttribTableWidget(QTableWidget):
     """Attribute table view backed by an :class:`AttribViewModel`.
@@ -63,6 +86,8 @@ class AttribTableWidget(QTableWidget):
             self._COL_UNIT,
             self.horizontalHeader().ResizeMode.ResizeToContents,
         )
+        self.setAlternatingRowColors(True)
+        self.setStyleSheet(_TABLE_QSS)
         self.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.verticalHeader().setVisible(False)
@@ -137,7 +162,6 @@ class AttribTableWidget(QTableWidget):
                 spinbox.setMaximum(1e18)
             spinbox.setValue(float(value))
             spinbox.valueChanged.connect(lambda v, k=key: self._vm.set_pending(k, v))
-            hlayout.addWidget(spinbox)
 
             if widget_type == "slider+spinbox" and entry.bounds is not None:
                 slider = QSlider(Qt.Orientation.Horizontal)
@@ -161,8 +185,9 @@ class AttribTableWidget(QTableWidget):
                         _sl.blockSignals(False),
                     )
                 )
-                hlayout.addWidget(slider)
+                hlayout.addWidget(slider)  # slider links
 
+            hlayout.addWidget(spinbox)  # spinbox rechts
             return container
 
         if widget_type == "combobox":

@@ -28,7 +28,7 @@ from synarius_core.model.attribute_dict import AttributeEntry
 from synarius_attr_config.meta import GuiHint, OptionMeta
 from synarius_attr_config.persistence import TomlPersistenceLayer
 from synarius_attr_config.projection import AttribViewModel
-from synarius_attr_config.widgets import AttribFormWidget, AttribTableWidget, OptionsMenuWidget
+from synarius_attr_config.widgets import AttribTableWidget, AttribFormWidget, OptionsMenuWidget
 
 from PySide6.QtWidgets import (
     QApplication,
@@ -129,10 +129,8 @@ def run_global_options_demo(
     persistence: TomlPersistenceLayer,
     parent: QWidget | None = None,
 ) -> None:
-    """Show global options in three tabs: Optionsmenü, Tabelle, Formular."""
+    """Show global options in two tabs: tree + AttribTableWidget and tree + AttribFormWidget."""
     global_entries = [(k, e, om, gh) for k, e, om, gh in ENTRIES if om.global_]
-    # Shared vm for the flat views (Tabelle + Formular); OptionsMenuWidget manages its own vms.
-    vm_flat = AttribViewModel(global_entries, persistence=persistence)
 
     dialog = QDialog(parent)
     dialog.setWindowTitle("Global Options")
@@ -140,10 +138,10 @@ def run_global_options_demo(
     layout = QVBoxLayout(dialog)
 
     tabs = QTabWidget()
-    options_widget = OptionsMenuWidget(global_entries, persistence)
-    tabs.addTab(options_widget, "Optionsmenü")
-    tabs.addTab(AttribTableWidget(vm_flat), "Tabelle")
-    tabs.addTab(AttribFormWidget(vm_flat), "Formular")
+    options_table = OptionsMenuWidget(global_entries, persistence)                        # Tabelle
+    options_form = OptionsMenuWidget(global_entries, persistence, use_form_panels=True)   # Raster
+    tabs.addTab(options_table, "Tabelle")
+    tabs.addTab(options_form, "Raster")
     layout.addWidget(tabs)
 
     buttons = QDialogButtonBox(
@@ -154,11 +152,14 @@ def run_global_options_demo(
     layout.addWidget(buttons)
 
     if dialog.exec() == QDialog.DialogCode.Accepted:
-        # Collect changes from the active view; prefer flat vm, supplement from OptionsMenuWidget.
-        changes: dict = dict(vm_flat.changed_values())
-        for vm in options_widget.all_view_models():
-            for k, v in vm.changed_values().items():
-                changes.setdefault(k, v)
+        # Collect from both variants; active-tab changes take precedence via dict.update order.
+        changes: dict = {}
+        active_widget = options_table if tabs.currentIndex() == 0 else options_form
+        other_widget = options_form if tabs.currentIndex() == 0 else options_table
+        for vm in other_widget.all_view_models():
+            changes.update(vm.changed_values())
+        for vm in active_widget.all_view_models():
+            changes.update(vm.changed_values())  # active tab wins
         if changes:
             persistence.write(changes)
             print(f"\n[Global options] Persisted: {changes}")

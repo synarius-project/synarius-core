@@ -17,6 +17,7 @@ from synarius_core.model.attribute_dict import AttributeEntry
 from synarius_attr_config.meta import GuiHint, OptionMeta
 from synarius_attr_config.persistence import TomlPersistenceLayer
 from synarius_attr_config.projection import AttribViewModel
+from synarius_attr_config.widgets._form_widget import AttribFormWidget
 from synarius_attr_config.widgets._table_widget import AttribTableWidget
 
 
@@ -51,10 +52,12 @@ class OptionsMenuWidget(QWidget):
         global_entries: list[tuple[str, AttributeEntry, OptionMeta, GuiHint]],
         persistence: TomlPersistenceLayer,
         obj_type: str = "",
+        use_form_panels: bool = False,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._persistence = persistence
+        self._use_form_panels = use_form_panels
         self._group_vms: dict[str, AttribViewModel] = {}
         self._path_to_panel: dict[str, QWidget] = {}
 
@@ -94,10 +97,11 @@ class OptionsMenuWidget(QWidget):
         splitter = QSplitter(Qt.Orientation.Horizontal)
         outer.addWidget(splitter)
 
-        # Left: tree
+        # Left: tree — deliberately narrow so the content pane dominates
         self._tree = QTreeWidget()
         self._tree.setHeaderHidden(True)
         self._tree.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
+        self._tree.setMaximumWidth(160)
         splitter.addWidget(self._tree)
 
         tree_nodes: dict[str, QTreeWidgetItem] = {}
@@ -115,7 +119,7 @@ class OptionsMenuWidget(QWidget):
         scroll.setWidgetResizable(True)
         splitter.addWidget(scroll)
         splitter.setStretchFactor(0, 1)
-        splitter.setStretchFactor(1, 3)
+        splitter.setStretchFactor(1, 5)
 
         for path, vm in self._group_vms.items():
             panel = self._make_panel(path, vm)
@@ -171,8 +175,8 @@ class OptionsMenuWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         title = QLabel(f"<b>{path.split('/')[-1]}</b>")
         layout.addWidget(title)
-        table = AttribTableWidget(vm)
-        layout.addWidget(table)
+        content: QWidget = AttribFormWidget(vm) if self._use_form_panels else AttribTableWidget(vm)
+        layout.addWidget(content)
         layout.addStretch()
         return panel
 
