@@ -51,6 +51,3 @@ class AttribFormWidget(QWidget):
                 key, widget_type, view_model.effective_writable(key)
             )
             layout.addWidget(value_widget, row, 1)
-
-            unit_label = QLabel(view_model.unit(key))
-            layout.addWidget(unit_label, row, 2)

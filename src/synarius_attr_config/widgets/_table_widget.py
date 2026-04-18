@@ -115,7 +115,6 @@ class AttribTableWidget(QTableWidget):
 
     _COL_NAME = 0
     _COL_VALUE = 1
-    _COL_UNIT = 2
 
     def __init__(
         self,
@@ -129,17 +128,9 @@ class AttribTableWidget(QTableWidget):
         self._row_keys: list[str] = []
         self._value_widgets: dict[str, QWidget] = {}
 
-        self.setColumnCount(3)
-        self.setHorizontalHeaderLabels(["Parameter", "Value", "Unit"])
-        self.horizontalHeader().setStretchLastSection(False)
-        self.horizontalHeader().setSectionResizeMode(
-            self._COL_VALUE,
-            self.horizontalHeader().ResizeMode.Stretch,
-        )
-        self.horizontalHeader().setSectionResizeMode(
-            self._COL_UNIT,
-            self.horizontalHeader().ResizeMode.ResizeToContents,
-        )
+        self.setColumnCount(2)
+        self.setHorizontalHeaderLabels(["Parameter", "Value"])
+        self.horizontalHeader().setStretchLastSection(True)
         self.setAlternatingRowColors(alternating_rows)
         self.setStyleSheet(_TABLE_QSS)
         self.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -179,10 +170,6 @@ class AttribTableWidget(QTableWidget):
             self._value_widgets[key] = value_widget
             self.setCellWidget(row, self._COL_VALUE, value_widget)
 
-            unit_item = QTableWidgetItem(self._vm.unit(key))
-            unit_item.setFlags(Qt.ItemFlag.ItemIsEnabled)
-            self.setItem(row, self._COL_UNIT, unit_item)
-
         self.resizeRowsToContents()
 
     def _make_value_widget(self, key: str, widget_type: str, writable: bool) -> QWidget:
@@ -221,6 +208,8 @@ class AttribTableWidget(QTableWidget):
             spinbox.setDecimals(
                 gh.decimal_precision if gh and gh.decimal_precision is not None else 4
             )
+            if entry.unit:
+                spinbox.setSuffix(f" {entry.unit}")
             spinbox.setEnabled(writable)
             if entry.bounds is not None:
                 spinbox.setMinimum(entry.bounds[0])
