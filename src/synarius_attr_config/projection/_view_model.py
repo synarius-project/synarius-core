@@ -105,6 +105,10 @@ class AttribViewModel:
     def has_pending_changes(self) -> bool:
         return bool(self.changed_values())
 
+    def is_modified(self, key: str) -> bool:
+        """Return True if the pending value differs from the original loaded value."""
+        return self._pending[key] != self._original[key]
+
     # ------------------------------------------------------------------
     # Validation
     # ------------------------------------------------------------------

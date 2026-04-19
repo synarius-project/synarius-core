@@ -37,7 +37,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QStyleFactory,
-    QTabWidget,
+    QTabWidget,  # used in run_local_config_demo
     QVBoxLayout,
     QWidget,
 )
@@ -179,7 +179,7 @@ GLOBAL_ENTRIES: list[tuple[str, AttributeEntry, OptionMeta, GuiHint]] = [
         "font_family",
         AttributeEntry.stored("Segoe UI", exposed=True, writable=True),
         OptionMeta(global_=True, global_path="Darstellung/Schrift", order=0),
-        GuiHint(display_name="Schriftart"),
+        GuiHint(display_name="Schriftart", widget_type_override="font_picker"),
     ),
     (
         "font_size",
@@ -207,6 +207,101 @@ GLOBAL_ENTRIES: list[tuple[str, AttributeEntry, OptionMeta, GuiHint]] = [
         OptionMeta(global_=True, global_path="Export/Zeitreihe", order=2),
         GuiHint(display_name="Ausgabepfad"),
     ),
+
+    # ---- Erweitert / Numerik  (Tiefe 2) -----------------------------------
+    (
+        "num_basis_type",
+        AttributeEntry.stored(
+            "explizit", exposed=True, writable=True,
+            enum_values=["explizit", "implizit", "semi-implizit"],
+        ),
+        OptionMeta(global_=True, global_path="Erweitert/Numerik", order=0),
+        GuiHint(display_name="Basistyp"),
+    ),
+    (
+        "num_max_steps",
+        AttributeEntry.stored(10000, exposed=True, writable=True, bounds=(100, 1_000_000)),
+        OptionMeta(global_=True, global_path="Erweitert/Numerik", order=1),
+        GuiHint(display_name="Max. Schritte"),
+    ),
+    (
+        "num_event_detect",
+        AttributeEntry.stored(True, exposed=True, writable=True),
+        OptionMeta(global_=True, global_path="Erweitert/Numerik", order=2),
+        GuiHint(display_name="Ereigniserkennung"),
+    ),
+
+    # ---- Erweitert / Numerik / Integration  (Tiefe 3) ---------------------
+    (
+        "int_step_control",
+        AttributeEntry.stored(True, exposed=True, writable=True),
+        OptionMeta(global_=True, global_path="Erweitert/Numerik/Integration", order=0),
+        GuiHint(display_name="Schrittweiten-Kontrolle"),
+    ),
+    (
+        "int_dense_output",
+        AttributeEntry.stored(False, exposed=True, writable=True),
+        OptionMeta(global_=True, global_path="Erweitert/Numerik/Integration", order=1),
+        GuiHint(display_name="Dichte Ausgabe"),
+    ),
+    (
+        "int_safety_factor",
+        AttributeEntry.stored(0.9, exposed=True, writable=True, bounds=(0.1, 1.0)),
+        OptionMeta(global_=True, global_path="Erweitert/Numerik/Integration", order=2),
+        GuiHint(display_name="Sicherheitsfaktor", decimal_precision=2),
+    ),
+
+    # ---- Erweitert / Numerik / Integration / Adams  (Tiefe 4) -------------
+    (
+        "adams_order",
+        AttributeEntry.stored(
+            "4", exposed=True, writable=True, enum_values=["1", "2", "3", "4", "5", "6"],
+        ),
+        OptionMeta(global_=True, global_path="Erweitert/Numerik/Integration/Adams", order=0),
+        GuiHint(display_name="Ordnung"),
+    ),
+    (
+        "adams_predictor",
+        AttributeEntry.stored(
+            "ABM", exposed=True, writable=True,
+            enum_values=["ABM", "Milne", "Hamming"],
+        ),
+        OptionMeta(global_=True, global_path="Erweitert/Numerik/Integration/Adams", order=1),
+        GuiHint(display_name="Prädiktor-Typ"),
+    ),
+    (
+        "adams_startup",
+        AttributeEntry.stored(
+            "RK4", exposed=True, writable=True, enum_values=["Euler", "RK2", "RK4"],
+        ),
+        OptionMeta(global_=True, global_path="Erweitert/Numerik/Integration/Adams", order=2),
+        GuiHint(display_name="Startverfahren"),
+    ),
+
+    # ---- Erweitert / Numerik / Integration / Adams / Korrektoren  (Tiefe 5)
+    (
+        "corr_iter_max",
+        AttributeEntry.stored(3, exposed=True, writable=True, bounds=(1, 20)),
+        OptionMeta(global_=True, global_path="Erweitert/Numerik/Integration/Adams/Korrektoren",
+                   order=0),
+        GuiHint(display_name="Max. Iterationen"),
+    ),
+    (
+        "corr_tol",
+        AttributeEntry.stored(1e-8, exposed=True, writable=True),
+        OptionMeta(global_=True, global_path="Erweitert/Numerik/Integration/Adams/Korrektoren",
+                   order=1),
+        GuiHint(display_name="Toleranz", decimal_precision=10),
+    ),
+    (
+        "corr_mode",
+        AttributeEntry.stored(
+            "PECE", exposed=True, writable=True, enum_values=["P", "PE", "PEC", "PECE"],
+        ),
+        OptionMeta(global_=True, global_path="Erweitert/Numerik/Integration/Adams/Korrektoren",
+                   order=2),
+        GuiHint(display_name="Modus"),
+    ),
 ]
 
 
@@ -220,12 +315,12 @@ def run_local_config_demo(parent: QWidget | None = None) -> None:
 
     dialog = QDialog(parent)
     dialog.setWindowTitle("Local Configuration — demo_block_1")
-    dialog.resize(580, 300)
     layout = QVBoxLayout(dialog)
 
     tabs = QTabWidget()
-    tabs.addTab(AttribTableWidget(vm), "Tabelle")
-    tabs.addTab(AttribFormWidget(vm), "Formular")
+    table_widget = AttribTableWidget(vm)
+    tabs.addTab(table_widget, "Tabelle")
+    tabs.addTab(AttribFormWidget(vm, dark=True), "Formular")
     layout.addWidget(tabs)
 
     buttons = QDialogButtonBox(
@@ -234,6 +329,10 @@ def run_local_config_demo(parent: QWidget | None = None) -> None:
     buttons.accepted.connect(dialog.accept)
     buttons.rejected.connect(dialog.reject)
     layout.addWidget(buttons)
+
+    dialog.adjustSize()
+    dialog.resize(420, dialog.sizeHint().height())
+    dialog.setMaximumHeight(dialog.sizeHint().height())
 
     if dialog.exec() == QDialog.DialogCode.Accepted:
         changes = vm.changed_values()
@@ -254,18 +353,14 @@ def run_global_options_demo(
     persistence: TomlPersistenceLayer,
     parent: QWidget | None = None,
 ) -> None:
-    """Show global options: 5 groups, all widget types, table vs. form panels."""
+    """Show global options: 5 groups, all widget types."""
     dialog = QDialog(parent)
     dialog.setWindowTitle("Global Options")
-    dialog.resize(800, 560)
+    dialog.resize(800, 600)
     layout = QVBoxLayout(dialog)
 
-    tabs = QTabWidget()
-    options_table = OptionsMenuWidget(GLOBAL_ENTRIES, persistence)
-    options_form  = OptionsMenuWidget(GLOBAL_ENTRIES, persistence, use_form_panels=True)
-    tabs.addTab(options_table, "Tabelle")
-    tabs.addTab(options_form,  "Raster")
-    layout.addWidget(tabs)
+    options = OptionsMenuWidget(GLOBAL_ENTRIES, persistence)
+    layout.addWidget(options)
 
     buttons = QDialogButtonBox(
         QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
@@ -275,13 +370,8 @@ def run_global_options_demo(
     layout.addWidget(buttons)
 
     if dialog.exec() == QDialog.DialogCode.Accepted:
-        # Active tab wins; the other tab only contributes keys not already changed.
-        active  = options_table if tabs.currentIndex() == 0 else options_form
-        passive = options_form  if tabs.currentIndex() == 0 else options_table
         changes: dict = {}
-        for vm in passive.all_view_models():
-            changes.update(vm.changed_values())
-        for vm in active.all_view_models():
+        for vm in options.all_view_models():
             changes.update(vm.changed_values())
         if changes:
             persistence.write(changes)
@@ -372,6 +462,18 @@ def main() -> None:
             "font_size": 10,
             "export_start": date(2025, 1, 1),
             "export_end": date(2025, 12, 31),
+            "num_basis_type": "explizit",
+            "num_max_steps": 10000,
+            "num_event_detect": True,
+            "int_step_control": True,
+            "int_dense_output": False,
+            "int_safety_factor": 0.9,
+            "adams_order": "4",
+            "adams_predictor": "ABM",
+            "adams_startup": "RK4",
+            "corr_iter_max": 3,
+            "corr_tol": 1e-8,
+            "corr_mode": "PECE",
         }
         defaults_path = tmp_dir / "global_defaults.toml"
         settings_path = tmp_dir / "global_settings.toml"
