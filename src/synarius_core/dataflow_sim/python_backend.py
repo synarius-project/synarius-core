@@ -184,7 +184,7 @@ def _emit_fmu_step_call(node_label: str, ctx: CodegenContext) -> list[str]:
     if node_label not in fmu_labels:
         return [f"    # fmu_step: unknown label {node_label!r} — skipped"]
     return [
-        f"    if _fmu_step is not None:",
+        "    if _fmu_step is not None:",
         f"        _fmu_step({_FMU_PREFIX}{node_label})",
         "",
     ]
@@ -220,7 +220,8 @@ def _render_expr(expr: Expr, ctx: CodegenContext, tmp: list[int]) -> tuple[list[
         pre_r, ra = _render_expr(expr.right, ctx, tmp)
         pre = pre_l + pre_r
         if expr.op == "/":
-            i = tmp[0]; tmp[0] += 1
+            i = tmp[0]
+            tmp[0] += 1
             ta, tb = f"_a{i}", f"_b{i}"
             pre += [
                 f"    {ta} = {la}",
@@ -253,13 +254,14 @@ def _render_call(expr: CallExpr, ctx: CodegenContext, tmp: list[int]) -> tuple[l
         ref = _extract_name(args[0])
         _, x_expr = _render_expr(args[1], ctx, tmp)
         pre: list[str] = []
-        i = tmp[0]; tmp[0] += 1
+        i = tmp[0]
+        tmp[0] += 1
         kl = f"_kl{i}"
         pre += [
             f"    {kl} = _pc.get({_PARAM_PREFIX}{ref})",
             f"    if {kl} is None:",
             f"        _kl_result{i} = 0.0",
-            f"    else:",
+            "    else:",
             f"        _kl_result{i} = syn_curve_lookup_linear_clamp({kl}[0], {kl}[1], {x_expr})",
         ]
         return pre, f"_kl_result{i}"
@@ -271,13 +273,14 @@ def _render_call(expr: CallExpr, ctx: CodegenContext, tmp: list[int]) -> tuple[l
         _, x_expr = _render_expr(args[1], ctx, tmp)
         _, y_expr = _render_expr(args[2], ctx, tmp)
         pre = []
-        i = tmp[0]; tmp[0] += 1
+        i = tmp[0]
+        tmp[0] += 1
         km = f"_km{i}"
         pre += [
             f"    {km} = _pc.get({_PARAM_PREFIX}{ref})",
             f"    if {km} is None:",
             f"        _km_result{i} = 0.0",
-            f"    else:",
+            "    else:",
             f"        _km_result{i} = syn_map_lookup_bilinear_clamp({km}[0], {km}[1], {km}[2], {x_expr}, {y_expr})",
         ]
         return pre, f"_km_result{i}"
@@ -303,7 +306,6 @@ def _emit_assign(stmt: AssignStmt, ctx: CodegenContext) -> list[str]:
     if target in ctx.variable_labels:
         # Variable node: wrap in stimulation guard
         guard_lines = [f"    if {target!r} not in stimmed:"]
-        assign      = pre + [f"        {slot} = {rhs}"]
         # Indent pre-lines inside the guard
         indented_pre = [
             ("        " + ln.lstrip()) if ln.strip() else ln

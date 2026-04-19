@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from PySide6.QtCore import QEvent, Qt
-from PySide6.QtGui import QBrush, QColor, QFont
+from PySide6.QtGui import QBrush, QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QAbstractScrollArea,
@@ -12,7 +12,6 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QFileDialog,
     QHBoxLayout,
-    QHeaderView,
     QLabel,
     QLineEdit,
     QMenu,
@@ -821,7 +820,7 @@ class AttribTableWidget(QTableWidget):
 
         if widget_type == "color_picker":
             from PySide6.QtGui import QColor as _QColor
-            from PySide6.QtWidgets import QApplication, QColorDialog
+            from PySide6.QtWidgets import QColorDialog
             container = QWidget()
             hlayout = QHBoxLayout(container)
             hlayout.setContentsMargins(2, 0, 0, 0)
@@ -854,7 +853,6 @@ class AttribTableWidget(QTableWidget):
                 lb: QLabel = hex_label,
                 sb: str = swatch_border,
             ) -> None:
-                from PySide6.QtWidgets import QColorDialog
                 # parent=None → Qt uses the native OS color dialog which is
                 # unaffected by the application palette.
                 picked = QColorDialog.getColor(

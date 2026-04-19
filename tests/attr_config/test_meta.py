@@ -1,6 +1,5 @@
 from dataclasses import fields
 
-import pytest
 
 from synarius_attr_config.meta import GuiHint, OptionMeta
 

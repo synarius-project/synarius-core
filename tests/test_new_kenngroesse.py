@@ -5,13 +5,12 @@ from __future__ import annotations
 import sys
 import unittest
 from pathlib import Path
-from uuid import UUID
 
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from synarius_core.controller import CommandError, SynariusController  # noqa: E402
+from synarius_core.controller import SynariusController  # noqa: E402
 from synarius_core.model import ElementaryInstance  # noqa: E402
 from synarius_core.model.data_model import ComplexInstance  # noqa: E402
 
@@ -152,7 +151,7 @@ class NewParameterTest(unittest.TestCase):
         ctl = _make_controller_with_dataset()
         ctl.execute("new map MyMap")
         ds_before = ctl.model.parameter_runtime().active_dataset()
-        cal_names_before = {c.name for c in ds_before.children if isinstance(c, ComplexInstance)}
+        {c.name for c in ds_before.children if isinstance(c, ComplexInstance)}
         ctl.execute("undo")
         # Elementary gone from diagram
         el_obj = next(

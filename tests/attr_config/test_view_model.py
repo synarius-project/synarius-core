@@ -2,7 +2,7 @@ import pytest
 
 from synarius_core.model.attribute_dict import AttributeEntry
 from synarius_attr_config.meta import GuiHint, OptionMeta
-from synarius_attr_config.projection import AttribViewModel, ValidationResult
+from synarius_attr_config.projection import AttribViewModel
 
 
 def _entry(value, *, exposed=True, writable=True, bounds=None, enum_values=None, unit=""):

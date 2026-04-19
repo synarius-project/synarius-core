@@ -1,7 +1,6 @@
 import logging
 from pathlib import Path
 
-import pytest
 
 from synarius_attr_config.projection import RegistryOverlayStore
 
