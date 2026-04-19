@@ -4,7 +4,9 @@ Controller Command Protocol
 Scope
 -----
 
-This specification defines the text-based command interface used to communicate with the Synarius Core controller.
+This specification defines the text-based **Controller Command Protocol**
+(hereafter **CCP**) — the command interface used to communicate with the
+Synarius Core controller.
 Commands are line-oriented and can run interactively (console) or in batch mode (script execution).
 
 Command log and model fidelity

@@ -36,7 +36,7 @@ include-package-data = true
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["synarius_core*"]
+include = ["synarius_core*", "synarius_attr_config*"]
 
 # Bundled FmuRuntime lives next to ``registry.py`` under ``synarius_core/plugins/`` so wheels
 # and PyInstaller include it (repo-root ``Plugins/`` is not part of the importable package tree).
@@ -55,6 +55,14 @@ include = ["synarius_core*"]
 dev = [
   "pytest>=7.0",
   "pytest-cov>=4.0",
+  "tomli-w>=1.0",
+]
+attr-config = [
+  "tomli-w>=1.0",
+]
+attr-config-widgets = [
+  "tomli-w>=1.0",
+  "PySide6>=6.0.0",
 ]
 simpy = [
   "simpy>=4.1",

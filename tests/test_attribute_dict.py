@@ -30,8 +30,10 @@ class AttributeEntryTest(unittest.TestCase):
         self.assertTrue(e.writable)
 
     def test_virtual_factory(self) -> None:
-        g = lambda: 7
-        s = lambda v: None
+        def g():
+            return 7
+        def s(v):
+            return None
         e = AttributeEntry.virtual(g, s, exposed=False, writable=True)
         self.assertIs(e.getter, g)
         self.assertIs(e.setter, s)
@@ -50,7 +52,8 @@ class AttributeEntryTest(unittest.TestCase):
 
     def test_dataclasses_replace_preserves_metadata(self) -> None:
         import dataclasses
-        spec = lambda v: int(v)
+        def spec(v):
+            return int(v)
         e = AttributeEntry.stored(0, writable=True, value_spec=spec)
         e2 = dataclasses.replace(e, value=99)
         self.assertEqual(e2.value, 99)
@@ -203,9 +206,9 @@ class AttributeDictTest(unittest.TestCase):
         self.assertEqual(attributes.stored_value("n"), 0)
 
     def test_set_value_preserves_metadata_via_replace(self) -> None:
-        import dataclasses
         attributes = AttributeDict()
-        spec = lambda v: v
+        def spec(v):
+            return v
         dict.__setitem__(
             attributes,
             "k",

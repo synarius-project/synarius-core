@@ -11,7 +11,7 @@
    attribute_path_semantics
    attribute_dict
    pin_model
-   attribute_config_concept
+   attribute_config/index
    controller_command_protocol
 
 2.2  Parameter Data Model
